@@ -9,7 +9,7 @@ import { Dashboard } from './pages/Dashboard';
 import { VendorsPage } from './pages/VendorsPage';
 import VendorDetailPage from './pages/VendorDetailPage';
 import EditVendorPage from './pages/EditVendorPage';
-import CouplesPage from './pages/CouplesPage';
+import { CouplesPage } from './pages/CouplesPage';
 import CoupleDetailPage from './pages/CoupleDetailPage';
 import BookingAndEventsPage from './pages/BookingAndEventsPage';
 import BookingDetailPage from './pages/BookingDetailPage';
@@ -46,7 +46,7 @@ import OrderDetailsPage from './pages/OrderDetailsPage';
 import ProductsPage from './pages/ProductsPage';
 import ProductDetailsPage from './pages/ProductDetailsPage';
 import InvoicePage from './pages/InvoicePage';
-import InvoiceDetailsPage from './pages/InvoiceDetailsPage'; // Added
+import InvoiceDetailsPage from './pages/InvoiceDetailsPage';
 import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
@@ -77,6 +77,7 @@ function App() {
               />
               <Route path="vendor/:id/edit" element={<EditVendorPage />} />
               <Route path="couples" element={<CouplesPage />} />
+              <Route path="couplespage" element={<Navigate to="/dashboard/couples" replace />} /> {/* Fallback for old path */}
               <Route
                 path="couple/:id"
                 element={

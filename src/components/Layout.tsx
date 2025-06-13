@@ -33,7 +33,7 @@ const navigation = [
     group: 'Users & Leads',
     items: [
       { name: 'Vendors', href: '/dashboard/vendors', icon: Building2 },
-      { name: 'Couples', href: '/dashboard/couples', icon: Heart },
+      { name: 'Couples', href: '/dashboard/couples', icon: Heart }, // Updated from /couplespage to /couples
       { name: 'Leads', href: '/dashboard/leads', icon: Users },
     ],
   },

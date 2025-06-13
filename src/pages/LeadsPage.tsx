@@ -38,6 +38,14 @@ export default function LeadsPage() {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const navigate = useNavigate();
+  const [analytics, setAnalytics] = useState({
+    currentMonth: 0,
+    lastMonth: 0,
+    thisYear: 0,
+    lastYear: 0,
+    moMChange: '0%',
+    yoYChange: '0%',
+  });
 
   useEffect(() => {
     fetchLeads();
@@ -46,12 +54,49 @@ export default function LeadsPage() {
   const fetchLeads = async () => {
     try {
       setLoading(true);
+      console.log('Fetching leads from Supabase...');
       const { data, error } = await supabase
         .from('leads')
         .select('*');
       if (error) throw error;
-      setLeads(data || []);
-      console.log('Leads fetched:', data);
+
+      const leadsData = data || [];
+      console.log('Leads data fetched:', leadsData);
+
+      // Calculate analytics
+      const now = new Date();
+      const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+      const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString();
+      const thisYearStart = new Date(now.getFullYear(), 0, 1).toISOString();
+      const lastYearStart = new Date(now.getFullYear() - 1, 0, 1).toISOString();
+      const lastYearEnd = new Date(now.getFullYear(), 0, 0).toISOString();
+
+      const currentMonthLeads = leadsData.filter(lead => 
+        new Date(lead.created_at) >= new Date(currentMonthStart) && new Date(lead.created_at) <= now
+      ).length;
+      const lastMonthLeads = leadsData.filter(lead => 
+        new Date(lead.created_at) >= new Date(lastMonthStart) && new Date(lead.created_at) <= new Date(lastMonthEnd)
+      ).length;
+      const thisYearLeads = leadsData.filter(lead => 
+        new Date(lead.created_at) >= new Date(thisYearStart) && new Date(lead.created_at) <= now
+      ).length;
+      const lastYearLeads = leadsData.filter(lead => 
+        new Date(lead.created_at) >= new Date(lastYearStart) && new Date(lead.created_at) <= new Date(lastYearEnd)
+      ).length;
+
+      const moMChange = lastMonthLeads > 0 ? `${(((currentMonthLeads - lastMonthLeads) / lastMonthLeads) * 100).toFixed(1)}%` : 'N/A';
+      const yoYChange = lastYearLeads > 0 ? `${(((thisYearLeads - lastYearLeads) / lastYearLeads) * 100).toFixed(1)}%` : 'N/A';
+
+      setAnalytics({
+        currentMonth: currentMonthLeads,
+        lastMonth: lastMonthLeads,
+        thisYear: thisYearLeads,
+        lastYear: lastYearLeads,
+        moMChange: moMChange,
+        yoYChange: yoYChange,
+      });
+      setLeads(leadsData);
     } catch (error: any) {
       console.error('Error fetching leads:', error);
       toast.error('Failed to load leads');
@@ -93,6 +138,38 @@ export default function LeadsPage() {
           <Plus className="h-4 w-4 mr-2" />
           Add Lead
         </button>
+      </div>
+
+      {/* Analytics Section */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-sm font-medium text-gray-500">Current Month Leads</h3>
+          <p className="text-2xl font-semibold text-gray-900">{analytics.currentMonth}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-sm font-medium text-gray-500">Last Month Leads</h3>
+          <p className="text-2xl font-semibold text-gray-900">{analytics.lastMonth}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-sm font-medium text-gray-500">This Year Leads</h3>
+          <p className="text-2xl font-semibold text-gray-900">{analytics.thisYear}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-sm font-medium text-gray-500">Last Year Leads</h3>
+          <p className="text-2xl font-semibold text-gray-900">{analytics.lastYear}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-sm font-medium text-gray-500">MoM Change</h3>
+          <p className={`text-2xl font-semibold ${analytics.moMChange.includes('-') ? 'text-red-600' : 'text-green-600'}`}>
+            {analytics.moMChange}
+          </p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="text-sm font-medium text-gray-500">YoY Change</h3>
+          <p className={`text-2xl font-semibold ${analytics.yoYChange.includes('-') ? 'text-red-600' : 'text-green-600'}`}>
+            {analytics.yoYChange}
+          </p>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">

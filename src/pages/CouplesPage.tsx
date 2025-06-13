@@ -1,320 +1,315 @@
-import React, { useState } from 'react';
-import { X, Users, Mail, Phone, Heart, Calendar, Save, Plus } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Users, Plus, Upload, Eye, Phone, Calendar, Heart } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
+import ImportCouplesModal from '../components/ImportCouplesModal';
+import AddCoupleModal from '../components/AddCoupleModal';
 
-interface AddCoupleModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccess: () => void; // Callback to refresh couples list
+interface Couple {
+  id: string;
+  user_id: string;
+  name: string;
+  wedding_date: string | null;
+  budget: number | null;
+  vibe_tags: string[] | null;
+  created_at: string;
+  updated_at: string;
+  partner1_name: string | null;
+  partner2_name: string | null;
+  venue_name: string | null;
+  guest_count: number | null;
+  phone: string | null;
+  email: string | null;
+  venue_city: string | null;
+  venue_state: string | null;
 }
 
-export default function AddCoupleModal({ isOpen, onClose, onSuccess }: AddCoupleModalProps) {
-  const [formData, setFormData] = useState({
-    name: '',
-    partner1_name: '',
-    partner2_name: '',
-    wedding_date: '',
-    budget: '',
-    vibe_tags: '',
-    phone: '',
-    email: '',
-    venue_name: '',
-    guest_count: '',
-    venue_city: '',
-    venue_state: ''
-  });
-  const [loading, setLoading] = useState(false);
+export function CouplesPage() {
+  const [couples, setCouples] = useState<Couple[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [vibeFilter, setVibeFilter] = useState('');
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
+  useEffect(() => {
+    fetchCouples();
+  }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
+  const fetchCouples = async () => {
     try {
-      // Validate email
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(formData.email)) {
-        throw new Error('Invalid email address');
-      }
-
-      // Create user in auth.users
-      const { data: userData, error: userError } = await supabase.auth.admin.createUser({
-        email: formData.email.trim(),
-        email_confirm: true,
-        user_metadata: { role: 'couple' }
-      });
-
-      if (userError) {
-        console.error('Error creating user:', userError);
-        throw new Error(`Failed to create user: ${userError.message}`);
-      }
-
-      const userId = userData.user?.id;
-      if (!userId) {
-        throw new Error('User creation failed: No user ID returned');
-      }
-
-      // Insert couple into couples table
-      const coupleData = {
-        user_id: userId,
-        name: formData.name.trim() || null,
-        partner1_name: formData.partner1_name.trim() || null,
-        partner2_name: formData.partner2_name.trim() || null,
-        wedding_date: formData.wedding_date || null,
-        budget: formData.budget ? parseInt(formData.budget) : null,
-        vibe_tags: formData.vibe_tags
-          ? formData.vibe_tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0)
-          : [],
-        phone: formData.phone.trim() || null,
-        email: formData.email.trim() || null,
-        venue_name: formData.venue_name.trim() || null,
-        guest_count: formData.guest_count ? parseInt(formData.guest_count) : null,
-        venue_city: formData.venue_city.trim() || null,
-        venue_state: formData.venue_state.trim() || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      const { error: coupleError } = await supabase
+      setLoading(true);
+      console.log('Fetching couples from Supabase...');
+      const { data: couplesData, error: couplesError } = await supabase
         .from('couples')
-        .insert(coupleData);
+        .select(`
+          id, user_id, name, wedding_date, budget, vibe_tags, created_at, updated_at,
+          partner1_name, partner2_name, venue_name, guest_count, phone, email,
+          venue_city, venue_state
+        `)
+        .order('created_at', { ascending: false });
 
-      if (coupleError) {
-        console.error('Error creating couple:', coupleError);
-        // Clean up: delete user if couple insertion fails
-        await supabase.auth.admin.deleteUser(userId);
-        throw new Error(`Failed to create couple: ${coupleError.message}`);
+      if (couplesError) {
+        console.error('Supabase error fetching couples:', couplesError);
+        throw couplesError;
       }
-
-      // Send password reset email
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(formData.email.trim(), {
-        redirectTo: `${window.location.origin}/reset-password`
-      });
-
-      if (resetError) {
-        console.error('Error sending reset email:', resetError);
-        toast.warn('Couple created, but failed to send password reset email');
-      } else {
-        toast.success('Couple added and password reset email sent!');
-      }
-
-      onSuccess(); // Refresh couples list
-      onClose();
+      console.log('Couples data fetched:', couplesData);
+      setCouples(couplesData || []);
     } catch (error: any) {
-      console.error('Error adding couple:', error);
-      toast.error(error.message || 'Failed to add couple');
+      console.error('Error fetching couples:', error);
+      toast.error('Failed to load couples');
     } finally {
       setLoading(false);
     }
   };
 
-  if (!isOpen) return null;
+  const allVibeTags = couples.flatMap(couple => couple.vibe_tags || []);
+  const uniqueVibeTags = [...new Set(allVibeTags)].sort();
+
+  const filteredCouples = couples.filter(couple => {
+    const matchesSearch = 
+      couple.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (couple.email && couple.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (couple.partner1_name && couple.partner1_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (couple.partner2_name && couple.partner2_name.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesVibe = !vibeFilter || (couple.vibe_tags?.includes(vibeFilter));
+    console.log(`Filtering couple ${couple.id}: Search=${matchesSearch}, Vibe=${matchesVibe}`);
+    return matchesSearch && matchesVibe;
+  });
+
+  if (loading) {
+    return (
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center">
+            <Users className="h-8 w-8 text-blue-600 mr-3" />
+            Couples
+          </h1>
+        </div>
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-full max-w-md">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-            <Users className="h-5 w-5 text-blue-600 mr-2" />
-            Add New Couple
-          </h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-            <X className="h-5 w-5" />
+    <div className="space-y-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center">
+            <Users className="h-8 w-8 text-blue-600 mr-3" />
+            Couples
+          </h1>
+          <p className="mt-2 text-gray-500">Manage and view all couples in the platform.</p>
+        </div>
+        <div className="flex space-x-3">
+          <button
+            onClick={() => setIsImportModalOpen(true)}
+            className="inline-flex items-center px-4 py-2 border border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Import Couples
+          </button>
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Couple
           </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">Couple Name *</label>
-            <input
-              type="text"
-              id="name"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., Smith & Johnson"
-            />
-          </div>
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="email"
-                id="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                required
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., couple@example.com"
-              />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-            <div className="relative">
-              <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="tel"
-                id="phone"
-                name="phone"
-                value={formData.phone}
-                onChange={handleChange}
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., (555) 123-4567"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label htmlFor="partner1_name" className="block text-sm font-medium text-gray-700 mb-1">Partner 1 Name</label>
-              <input
-                type="text"
-                id="partner1_name"
-                name="partner1_name"
-                value={formData.partner1_name}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., Alex"
-              />
-            </div>
-            <div>
-              <label htmlFor="partner2_name" className="block text-sm font-medium text-gray-700 mb-1">Partner 2 Name</label>
-              <input
-                type="text"
-                id="partner2_name"
-                name="partner2_name"
-                value={formData.partner2_name}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., Taylor"
-              />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="wedding_date" className="block text-sm font-medium text-gray-700 mb-1">Wedding Date</label>
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="date"
-                id="wedding_date"
-                name="wedding_date"
-                value={formData.wedding_date}
-                onChange={handleChange}
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="budget" className="block text-sm font-medium text-gray-700 mb-1">Budget</label>
-            <input
-              type="number"
-              id="budget"
-              name="budget"
-              value={formData.budget}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., 50000"
-            />
-          </div>
-          <div>
-            <label htmlFor="vibe_tags" className="block text-sm font-medium text-gray-700 mb-1">Vibe Tags</label>
-            <div className="relative">
-              <Heart className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                id="vibe_tags"
-                name="vibe_tags"
-                value={formData.vibe_tags}
-                onChange={handleChange}
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., rustic, modern, boho"
-              />
-            </div>
-          </div>
-          <div>
-            <label htmlFor="guest_count" className="block text-sm font-medium text-gray-700 mb-1">Guest Count</label>
-            <input
-              type="number"
-              id="guest_count"
-              name="guest_count"
-              value={formData.guest_count}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., 150"
-            />
-          </div>
-          <div>
-            <label htmlFor="venue_name" className="block text-sm font-medium text-gray-700 mb-1">Venue Name</label>
-            <input
-              type="text"
-              id="venue_name"
-              name="venue_name"
-              value={formData.venue_name}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., Willow Creek Vineyard"
-            />
-          </div>
-          <div>
-            <label htmlFor="venue_city" className="block text-sm font-medium text-gray-700 mb-1">Venue City</label>
-            <input
-              type="text"
-              id="venue_city"
-              name="venue_city"
-              value={formData.venue_city}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., Napa"
-            />
-          </div>
-          <div>
-            <label htmlFor="venue_state" className="block text-sm font-medium text-gray-700 mb-1">Venue State</label>
-            <input
-              type="text"
-              id="venue_state"
-              name="venue_state"
-              value={formData.venue_state}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., CA"
-            />
-          </div>
-          <div className="flex justify-end space-x-3 mt-6">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || !formData.name.trim() || !formData.email.trim()}
-              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Adding...
-                </>
-              ) : (
-                <>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Couple
-                </>
-              )}
-            </button>
-          </div>
-        </form>
       </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
+              Search Couples
+            </label>
+            <input
+              type="text"
+              id="search"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search by name, email, or partner names..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label htmlFor="vibe-filter" className="block text-sm font-medium text-gray-700 mb-2">
+              Filter by Vibe Tag
+            </label>
+            <select
+              id="vibe-filter"
+              value={vibeFilter}
+              onChange={(e) => setVibeFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">All Vibe Tags</option>
+              {uniqueVibeTags.map(tag => (
+                <option key={tag} value={tag}>{tag}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h2 className="text-lg font-semibold text-gray-900">
+            All Couples ({filteredCouples.length})
+          </h2>
+        </div>
+        {filteredCouples.length === 0 ? (
+          <div className="text-center py-12">
+            <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No couples found</h3>
+            <p className="text-gray-500">
+              {searchTerm || vibeFilter ? 'Try adjusting your filters' : 'No couples have been added yet'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Couple Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Partners
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Wedding Date
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Venue
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Vibe Tags
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Budget
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Created
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredCouples.map((couple) => (
+                  <tr
+                    key={couple.id}
+                    className="hover:bg-gray-50 cursor-pointer transition-colors"
+                    onClick={() => navigate(`/dashboard/couple/${couple.id}`)}
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{couple.name}</div>
+                        {couple.phone && (
+                          <div className="text-sm text-gray-500 flex items-center">
+                            <Phone className="h-3 w-3 mr-1" />
+                            {couple.phone}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm text-gray-900">
+                        {couple.partner1_name && couple.partner2_name 
+                          ? `${couple.partner1_name} & ${couple.partner2_name}`
+                          : 'Not specified'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center">
+                        {couple.wedding_date ? (
+                          <>
+                            <Calendar className="h-4 w-4 text-gray-400 mr-1" />
+                            <span>{new Date(couple.wedding_date).toLocaleDateString()}</span>
+                          </>
+                        ) : (
+                          <span className="text-gray-400">Not set</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-900">
+                        {couple.venue_name ? (
+                          <>
+                            <span>{couple.venue_name}</span>
+                            {couple.venue_city && couple.venue_state && (
+                              <span className="text-gray-500 block text-xs">
+                                {couple.venue_city}, {couple.venue_state}
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-gray-400">No venue</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-wrap gap-1">
+                        {couple.vibe_tags?.slice(0, 2).map((tag, index) => (
+                          <span
+                            key={index}
+                            className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-pink-100 text-pink-800"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                        {couple.vibe_tags && couple.vibe_tags.length > 2 && (
+                          <span className="text-xs text-gray-500">
+                            +{couple.vibe_tags.length - 2} more
+                          </span>
+                        )}
+                        {!couple.vibe_tags || couple.vibe_tags.length === 0 && (
+                          <span className="text-xs text-gray-400 italic">No tags</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {couple.budget ? (
+                        <span>${couple.budget.toLocaleString()}</span>
+                      ) : (
+                        <span className="text-gray-400">Not set</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {new Date(couple.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/dashboard/couple/${couple.id}`);
+                          }}
+                          className="inline-flex items-center px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          View/Edit
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <ImportCouplesModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
+      <AddCoupleModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} />
     </div>
   );
 }

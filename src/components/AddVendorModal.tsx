@@ -1,10 +1,10 @@
 // src/components/AddVendorModal.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
-import { Plus, Save } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { Save } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { supabase } from '../lib/supabase';
 
 interface AddVendorModalProps {
   isOpen: boolean;
@@ -21,59 +21,104 @@ export default function AddVendorModal({ isOpen, onClose }: AddVendorModalProps)
     service_areas: '',
     specialties: '',
     stripe_account_id: '',
-    user_id: '' // Email for auth
+    user_id: '',
+    gear_list: '',
+    portfolio_photos: '',
+    portfolio_videos: '',
+    awards: '',
+    education: '',
+    equipment: '',
+    social_media: '',
+    business_hours: '',
+    languages: '',
+    insurance_info: '',
+    business_license: '',
+    service_types: '',
   });
   const [loading, setLoading] = useState(false);
 
+  // Admin check
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkAdmin = async () => {
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (!isMounted) return;
+      if (error || !user) {
+        toast.error('Please log in');
+        onClose();
+        return;
+      }
+      if (user.user_metadata?.role !== 'admin') {
+        toast.error('Unauthorized action');
+        onClose();
+      }
+    };
+
+    checkAdmin();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Empty deps to run once
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.user_id)) {
+      toast.error('Invalid email format');
+      return;
+    }
+    for (const field of ['equipment', 'social_media', 'business_hours']) {
+      if (formData[field]) {
+        try {
+          JSON.parse(formData[field]);
+        } catch {
+          toast.error(`Invalid JSON in ${field}`);
+          return;
+        }
+      }
+    }
     setLoading(true);
 
     try {
-      // Create user in Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: formData.user_id.trim(),
-        password: Math.random().toString(36).slice(-8), // Temporary random password
-        email_confirm: true,
-        user_metadata: { role: 'vendor' }
+      const response = await fetch('https://eecbrvehrhrvdzuutliq.supabase.co/functions/v1/create-vendor', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          email: formData.user_id,
+          name: formData.name,
+          profile_photo: formData.profile_photo,
+          phone: formData.phone,
+          years_experience: formData.years_experience,
+          profile: formData.profile,
+          service_areas: formData.service_areas,
+          specialties: formData.specialties,
+          stripe_account_id: formData.stripe_account_id,
+          gear_list: formData.gear_list,
+          portfolio_photos: formData.portfolio_photos,
+          portfolio_videos: formData.portfolio_videos,
+          awards: formData.awards,
+          education: formData.education,
+          equipment: formData.equipment,
+          social_media: formData.social_media,
+          business_hours: formData.business_hours,
+          languages: formData.languages,
+          insurance_info: formData.insurance_info,
+          business_license: formData.business_license,
+          service_types: formData.service_types,
+        }),
       });
 
-      if (authError) throw authError;
+      const result = await response.json();
 
-      const userId = authData.user?.id;
-      if (!userId) throw new Error('User ID not generated');
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to add vendor');
+      }
 
-      // Insert into vendors table
-      const updateData = {
-        name: formData.name.trim() || null,
-        profile_photo: formData.profile_photo.trim() || null,
-        phone: formData.phone.trim() || null,
-        years_experience: formData.years_experience ? parseInt(formData.years_experience) : null,
-        profile: formData.profile.trim() || null,
-        service_areas: formData.service_areas
-          ? formData.service_areas.split(',').map(area => area.trim()).filter(area => area.length > 0)
-          : [],
-        specialties: formData.specialties
-          ? formData.specialties.split(',').map(specialty => specialty.trim()).filter(specialty => specialty.length > 0)
-          : [],
-        stripe_account_id: formData.stripe_account_id.trim() || null,
-        user_id: userId
-      };
-
-      const { data, error } = await supabase
-        .from('vendors')
-        .insert(updateData)
-        .select();
-
-      if (error) throw error;
-
-      // Send password reset email
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(formData.user_id.trim(), {
-        redirectTo: `${window.location.origin}/reset-password`
-      });
-      if (resetError) throw resetError;
-
-      toast.success('Vendor added and password reset email sent!');
+      toast.success('Vendor added and welcome email sent!');
       onClose();
     } catch (error: any) {
       console.error('Error adding vendor:', error);
@@ -126,6 +171,20 @@ export default function AddVendorModal({ isOpen, onClose }: AddVendorModalProps)
                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                         className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                         placeholder="Enter vendor name"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="user_id" className="block text-sm font-medium text-gray-700">
+                        Email *
+                      </label>
+                      <input
+                        type="email"
+                        id="user_id"
+                        value={formData.user_id}
+                        onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder="Enter vendor email"
                         required
                       />
                     </div>
@@ -220,17 +279,156 @@ export default function AddVendorModal({ isOpen, onClose }: AddVendorModalProps)
                       />
                     </div>
                     <div>
-                      <label htmlFor="user_id" className="block text-sm font-medium text-gray-700">
-                        Email (User ID) *
+                      <label htmlFor="gear_list" className="block text-sm font-medium text-gray-700">
+                        Gear List
                       </label>
                       <input
-                        type="email"
-                        id="user_id"
-                        value={formData.user_id}
-                        onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
+                        type="text"
+                        id="gear_list"
+                        value={formData.gear_list}
+                        onChange={(e) => setFormData({ ...formData, gear_list: e.target.value })}
                         className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                        placeholder="Enter vendor email"
-                        required
+                        placeholder="e.g., Camera, Tripod"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="portfolio_photos" className="block text-sm font-medium text-gray-700">
+                        Portfolio Photos
+                      </label>
+                      <input
+                        type="text"
+                        id="portfolio_photos"
+                        value={formData.portfolio_photos}
+                        onChange={(e) => setFormData({ ...formData, portfolio_photos: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder="e.g., url1, url2"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="portfolio_videos" className="block text-sm font-medium text-gray-700">
+                        Portfolio Videos
+                      </label>
+                      <input
+                        type="text"
+                        id="portfolio_videos"
+                        value={formData.portfolio_videos}
+                        onChange={(e) => setFormData({ ...formData, portfolio_videos: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder="e.g., url1, url2"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="awards" className="block text-sm font-medium text-gray-700">
+                        Awards
+                      </label>
+                      <input
+                        type="text"
+                        id="awards"
+                        value={formData.awards}
+                        onChange={(e) => setFormData({ ...formData, awards: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder="e.g., Best Photographer 2023"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="education" className="block text-sm font-medium text-gray-700">
+                        Education
+                      </label>
+                      <input
+                        type="text"
+                        id="education"
+                        value={formData.education}
+                        onChange={(e) => setFormData({ ...formData, education: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder="e.g., BFA in Photography"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="equipment" className="block text-sm font-medium text-gray-700">
+                        Equipment (JSON)
+                      </label>
+                      <textarea
+                        id="equipment"
+                        value={formData.equipment}
+                        onChange={(e) => setFormData({ ...formData, equipment: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder='e.g., {"camera": "Canon EOS"}'
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="social_media" className="block text-sm font-medium text-gray-700">
+                        Social Media (JSON)
+                      </label>
+                      <textarea
+                        id="social_media"
+                        value={formData.social_media}
+                        onChange={(e) => setFormData({ ...formData, social_media: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder='e.g., {"twitter": "handle"}'
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="business_hours" className="block text-sm font-medium text-gray-700">
+                        Business Hours (JSON)
+                      </label>
+                      <textarea
+                        id="business_hours"
+                        value={formData.business_hours}
+                        onChange={(e) => setFormData({ ...formData, business_hours: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder='e.g., {"mon": "9-5"}'
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="languages" className="block text-sm font-medium text-gray-700">
+                        Languages
+                      </label>
+                      <input
+                        type="text"
+                        id="languages"
+                        value={formData.languages}
+                        onChange={(e) => setFormData({ ...formData, languages: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder="e.g., English, Spanish"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="insurance_info" className="block text-sm font-medium text-gray-700">
+                        Insurance Info
+                      </label>
+                      <input
+                        type="text"
+                        id="insurance_info"
+                        value={formData.insurance_info}
+                        onChange={(e) => setFormData({ ...formData, insurance_info: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder="e.g., Policy #123"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="business_license" className="block text-sm font-medium text-gray-700">
+                        Business License
+                      </label>
+                      <input
+                        type="text"
+                        id="business_license"
+                        value={formData.business_license}
+                        onChange={(e) => setFormData({ ...formData, business_license: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder="e.g., License #456"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="service_types" className="block text-sm font-medium text-gray-700">
+                        Service Types
+                      </label>
+                      <input
+                        type="text"
+                        id="service_types"
+                        value={formData.service_types}
+                        onChange={(e) => setFormData({ ...formData, service_types: e.target.value })}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                        placeholder="e.g., Wedding, Corporate"
                       />
                     </div>
                     <div className="mt-4">

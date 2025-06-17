@@ -157,7 +157,6 @@ export default function IssuesPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Issue Type</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Severity</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created At</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -170,7 +169,6 @@ export default function IssuesPage() {
                     <td className="px-6 py-4 whitespace-nowrap">{issue.name}</td>
                     <td className="px-6 py-4 whitespace-nowrap">{issue.issue_type}</td>
                     <td className="px-6 py-4 whitespace-nowrap">{issue.severity}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">{issue.description}</td>
                     <td className="px-6 py-4 whitespace-nowrap">{issue.status}</td>
                     <td className="px-6 py-4 whitespace-nowrap">{new Date(issue.created_at).toLocaleString()}</td>
                     <td className="px-6 py-4 whitespace-nowrap">

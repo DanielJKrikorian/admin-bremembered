@@ -1,9 +1,7 @@
-// src/components/ImportVendorsModal.tsx
 import React, { useState } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { Upload, CheckCircle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 interface ImportVendorsModalProps {
@@ -12,11 +10,10 @@ interface ImportVendorsModalProps {
 }
 
 const csvTemplate = `name,profile_photo,phone,years_experience,profile,service_areas,specialties,stripe_account_id,user_id
-John Doe,https://example.com/photo.jpg,,5,"Experienced vendor",Boston,Photography,acct_123,,`;
+John Doe,https://example.com/photo.jpg,,5,"Experienced vendor",Boston,Photography,acct_123,john@example.com`;
 
 export default function ImportVendorsModal({ isOpen, onClose }: ImportVendorsModalProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [sendLoginEmail, setSendLoginEmail] = useState(false);
   const [progress, setProgress] = useState(0);
   const [importedVendors, setImportedVendors] = useState<{ name: string; status: string; email?: string }[]>([]);
   const [isImporting, setIsImporting] = useState(false);
@@ -54,52 +51,37 @@ export default function ImportVendorsModal({ isOpen, onClose }: ImportVendorsMod
 
       for (let i = 0; i < rows.length; i++) {
         const [name, profile_photo, phone, years_experience, profile, service_areas, specialties, stripe_account_id, user_id] = rows[i].split(',');
-        const progressPercent = Math.round((i / total) * 100);
+        const progressPercent = Math.round(((i + 1) / total) * 100);
         setProgress(progressPercent);
 
         try {
-          // Create user in Supabase Auth
-          const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+          const payload = {
             email: user_id.trim(),
-            password: Math.random().toString(36).slice(-8), // Temporary random password
-            email_confirm: true,
-            user_metadata: { role: 'vendor' }
-          });
-
-          if (authError) throw authError;
-
-          const userId = authData.user?.id;
-          if (!userId) throw new Error('User ID not generated');
-
-          // Insert into vendors table
-          const updateData = {
-            name: name || null,
-            profile_photo: profile_photo || null,
-            phone: phone || null,
-            years_experience: years_experience ? parseInt(years_experience) : null,
-            profile: profile || null,
-            service_areas: service_areas ? service_areas.split(',').map(area => area.trim()).filter(area => area.length > 0) : [],
-            specialties: specialties ? specialties.split(',').map(specialty => specialty.trim()).filter(specialty => specialty.length > 0) : [],
-            stripe_account_id: stripe_account_id || null,
-            user_id: userId
+            name: name?.trim(),
+            profile_photo: profile_photo?.trim(),
+            phone: phone?.trim(),
+            years_experience: years_experience?.trim(),
+            profile: profile?.trim(),
+            service_areas: service_areas?.trim(),
+            specialties: specialties?.trim(),
+            stripe_account_id: stripe_account_id?.trim(),
           };
 
-          const { data, error } = await supabase
-            .from('vendors')
-            .insert(updateData)
-            .select();
+          const response = await fetch('https://eecbrvehrhrvdzuutliq.supabase.co/functions/v1/create-vendor', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify(payload),
+          });
 
-          if (error) throw error;
-
-          // Send password reset email if requested
-          if (sendLoginEmail && user_id) {
-            await supabase.auth.resetPasswordForEmail(user_id.trim(), {
-              redirectTo: `${window.location.origin}/reset-password`
-            });
-          }
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Failed to create vendor via function');
 
           setImportedVendors(prev => [...prev, { name, status: 'Success', email: user_id }]);
         } catch (error: any) {
+          console.error('Import error:', error);
           setImportedVendors(prev => [...prev, { name, status: 'Failed', email: user_id }]);
         }
       }
@@ -150,23 +132,14 @@ export default function ImportVendorsModal({ isOpen, onClose }: ImportVendorsMod
                     <Upload className="h-4 w-4 mr-1" />
                     Download CSV Template
                   </button>
-                  <div className="mb-4">
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={sendLoginEmail}
-                        onChange={(e) => setSendLoginEmail(e.target.checked)}
-                        className="mr-2"
-                      />
-                      Send Login Email to All Vendors
-                    </label>
-                  </div>
+
                   <input
                     type="file"
                     accept=".csv"
                     onChange={handleFileChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-4"
                   />
+
                   {isImporting && (
                     <div className="mb-4">
                       <div className="w-full bg-gray-200 rounded-full h-2.5">
@@ -178,6 +151,7 @@ export default function ImportVendorsModal({ isOpen, onClose }: ImportVendorsMod
                       <p className="text-sm text-gray-600 mt-1">{progress}%</p>
                     </div>
                   )}
+
                   {importedVendors.length > 0 && (
                     <div className="overflow-x-auto mb-4">
                       <table className="min-w-full divide-y divide-gray-200">
@@ -212,6 +186,7 @@ export default function ImportVendorsModal({ isOpen, onClose }: ImportVendorsMod
                       </table>
                     </div>
                   )}
+
                   {success && (
                     <div className="text-green-600 flex items-center">
                       <CheckCircle className="h-5 w-5 mr-2" />

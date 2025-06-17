@@ -1,25 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { Upload, CheckCircle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
+import { supabase } from '../lib/supabase';
 
 interface ImportCouplesModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void; // Callback to refresh couples list
+  onSuccess?: () => void; // Optional, matching AddCoupleModal
 }
 
-const csvTemplate = `name,partner1_name,partner2_name,wedding_date,budget,vibe_tags,phone,email,venue_name,guest_count,venue_city,venue_state
-"Smith & Johnson",Alex,Taylor,2025-06-15,50000,"rustic,modern,boho",123-456-7890,couple@example.com,Willow Creek Vineyard,150,Napa,CA`;
+const csvTemplate = `name,email,phone,partner1_name,partner2_name,wedding_date,budget,vibe_tags,venue_name,guest_count,venue_city,venue_state
+"Smith & Johnson",couple@example.com,"(555) 123-4567",Alex,Taylor,2025-12-01,50000,"rustic,boho","Willow Creek Vineyard",150,Napa,CA`;
 
 export default function ImportCouplesModal({ isOpen, onClose, onSuccess }: ImportCouplesModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
-  const [importedCouples, setImportedCouples] = useState<{ name: string; status: string; email?: string; error?: string }[]>([]);
+  const [importedCouples, setImportedCouples] = useState<{ name: string; status: string; email?: string }[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  // Admin check
+  useEffect(() => {
+    let isMounted = true;
+
+    const checkAdmin = async () => {
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (!isMounted) return;
+      if (error || !user) {
+        toast.error('Please log in');
+        onClose();
+        return;
+      }
+      if (user.user_metadata?.role !== 'admin') {
+        toast.error('Unauthorized action');
+        onClose();
+      }
+    };
+
+    checkAdmin();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Empty deps to run once
 
   const handleDownloadTemplate = () => {
     const blob = new Blob([csvTemplate], { type: 'text/csv' });
@@ -52,96 +77,57 @@ export default function ImportCouplesModal({ isOpen, onClose, onSuccess }: Impor
       const total = rows.length;
 
       for (let i = 0; i < rows.length; i++) {
-        // Parse CSV row, handling quoted fields
-        const fields = rows[i].split(',').map(field => field.replace(/^"|"$/g, '').trim());
-        const [name, partner1_name, partner2_name, wedding_date, budget, vibe_tags, phone, email, venue_name, guest_count, venue_city, venue_state] = fields;
+        // Handle CSV parsing with potential commas in fields (e.g., vibe_tags)
+        const rowValues = rows[i].split(/(?=(?:[^"]*"[^"]*")*[^"]*$),/).map(val => val.replace(/^"|"$/g, '').trim());
+        const [name, email, phone, partner1_name, partner2_name, wedding_date, budget, vibe_tags, venue_name, guest_count, venue_city, venue_state] = rowValues;
         const progressPercent = Math.round(((i + 1) / total) * 100);
         setProgress(progressPercent);
 
         try {
-          // Validate email
-          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-          if (!email || !emailRegex.test(email)) {
-            throw new Error('Invalid or missing email address');
-          }
-
-          // Create user in auth.users
-          const { data: userData, error: userError } = await supabase.auth.admin.createUser({
-            email: email,
-            email_confirm: true,
-            user_metadata: { role: 'couple' }
-          });
-
-          if (userError) {
-            console.error(`Error creating user for ${name}:`, userError);
-            throw new Error(`Failed to create user: ${userError.message}`);
-          }
-
-          const userId = userData.user?.id;
-          if (!userId) {
-            throw new Error('User creation failed: No user ID returned');
-          }
-
-          // Insert into couples table
-          const coupleData = {
-            name: name || null,
-            partner1_name: partner1_name || null,
-            partner2_name: partner2_name || null,
-            wedding_date: wedding_date || null,
-            budget: budget ? parseInt(budget) : null,
-            vibe_tags: vibe_tags ? vibe_tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0) : [],
-            phone: phone || null,
-            email: email || null,
-            venue_name: venue_name || null,
-            guest_count: guest_count ? parseInt(guest_count) : null,
-            venue_city: venue_city || null,
-            venue_state: venue_state || null,
-            user_id: userId,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+          const payload = {
+            email: email?.trim(),
+            name: name?.trim(),
+            phone: phone?.trim(),
+            partner1_name: partner1_name?.trim(),
+            partner2_name: partner2_name?.trim(),
+            wedding_date: wedding_date?.trim(),
+            budget: budget?.trim(),
+            vibe_tags: vibe_tags?.trim(),
+            venue_name: venue_name?.trim(),
+            guest_count: guest_count?.trim(),
+            venue_city: venue_city?.trim(),
+            venue_state: venue_state?.trim(),
           };
 
-          const { error: coupleError } = await supabase
-            .from('couples')
-            .insert(coupleData);
-
-          if (coupleError) {
-            console.error(`Error inserting couple ${name}:`, coupleError);
-            // Clean up: delete user if couple insertion fails
-            await supabase.auth.admin.deleteUser(userId);
-            throw new Error(`Failed to insert couple: ${coupleError.message}`);
-          }
-
-          // Send password reset email
-          const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${window.location.origin}/reset-password`
+          const response = await fetch('https://eecbrvehrhrvdzuutliq.supabase.co/functions/v1/create-couple', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify(payload),
           });
 
-          if (resetError) {
-            console.warn(`Failed to send reset email for ${name}: ${resetError.message}`);
-            setImportedCouples(prev => [...prev, { name, status: 'Success', email, error: 'Failed to send password reset email' }]);
-          } else {
-            setImportedCouples(prev => [...prev, { name, status: 'Success', email }]);
-          }
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Failed to create couple via function');
+
+          setImportedCouples(prev => [...prev, { name, status: 'Success', email }]);
         } catch (error: any) {
-          console.error(`Error importing couple ${name}:`, error);
-          setImportedCouples(prev => [...prev, { name, status: 'Failed', email, error: error.message || 'Unknown error' }]);
+          console.error('Import error:', error);
+          setImportedCouples(prev => [...prev, { name, status: 'Failed', email }]);
         }
       }
 
+      setProgress(100);
       setIsImporting(false);
       setSuccess(true);
-      const successfulImports = importedCouples.filter(c => c.status === 'Success').length;
-      toast.success(`Imported ${successfulImports} couples successfully!`);
-      if (importedCouples.some(c => c.status === 'Failed')) {
-        toast.error(`Failed to import ${importedCouples.filter(c => c.status === 'Failed').length} couples. Check logs for details.`);
+      toast.success('Couples imported successfully!');
+      if (typeof onSuccess === 'function') {
+        onSuccess(); // Safe call
       }
-      onSuccess(); // Refresh couples list
     };
     reader.readAsText(file);
   };
-
-  if (!isOpen) return null;
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
@@ -181,12 +167,14 @@ export default function ImportCouplesModal({ isOpen, onClose, onSuccess }: Impor
                     <Upload className="h-4 w-4 mr-1" />
                     Download CSV Template
                   </button>
+
                   <input
                     type="file"
                     accept=".csv"
                     onChange={handleFileChange}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-4"
                   />
+
                   {isImporting && (
                     <div className="mb-4">
                       <div className="w-full bg-gray-200 rounded-full h-2.5">
@@ -198,15 +186,21 @@ export default function ImportCouplesModal({ isOpen, onClose, onSuccess }: Impor
                       <p className="text-sm text-gray-600 mt-1">{progress}%</p>
                     </div>
                   )}
+
                   {importedCouples.length > 0 && (
                     <div className="overflow-x-auto mb-4">
                       <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Error</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Name
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Status
+                            </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Email
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
@@ -221,17 +215,17 @@ export default function ImportCouplesModal({ isOpen, onClose, onSuccess }: Impor
                                 )}
                               </td>
                               <td className="px-4 py-2 whitespace-nowrap">{couple.email}</td>
-                              <td className="px-4 py-2 whitespace-nowrap">{couple.error || '-'}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                   )}
+
                   {success && (
-                    <div className="text-green-600 flex items-center mb-4">
+                    <div className="text-green-600 flex items-center">
                       <CheckCircle className="h-5 w-5 mr-2" />
-                      Import completed!
+                      Import completed successfully!
                     </div>
                   )}
                 </div>

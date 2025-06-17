@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { Upload, CheckCircle } from 'lucide-react';
@@ -11,8 +11,8 @@ interface ImportVenuesModalProps {
   onSuccess: () => void;
 }
 
-const csvTemplate = `name,phone,email,contact_name,street_address,city,state,zip,region
-"Willow Creek Vineyard",555-123-4567,info@willowcreek.com,John Doe,123 Vine St,Portland,OR,97205,West`;
+const csvTemplate = `name,phone,email,street_address,city,state,zip,region
+"Willow Creek Vineyard",555-123-4567,info@willowcreek.com,123 Vine St,Portland,MA,97205,West`;
 
 export default function ImportVenuesModal({ isOpen, onClose, onSuccess }: ImportVenuesModalProps) {
   const [file, setFile] = useState<File | null>(null);
@@ -20,6 +20,17 @@ export default function ImportVenuesModal({ isOpen, onClose, onSuccess }: Import
   const [importedItems, setImportedItems] = useState<{ name: string; status: string; error?: string }[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    // Clean up file state when modal closes
+    if (!isOpen) {
+      setFile(null);
+      setProgress(0);
+      setImportedItems([]);
+      setIsImporting(false);
+      setSuccess(false);
+    }
+  }, [isOpen]);
 
   const handleDownloadTemplate = () => {
     const blob = new Blob([csvTemplate], { type: 'text/csv' });
@@ -37,6 +48,8 @@ export default function ImportVenuesModal({ isOpen, onClose, onSuccess }: Import
     }
   };
 
+  const validStates = ['MA', 'RI', 'NH', 'CT', 'ME', 'VT'];
+
   const handleImport = async () => {
     if (!file) return;
 
@@ -52,16 +65,22 @@ export default function ImportVenuesModal({ isOpen, onClose, onSuccess }: Import
       const total = rows.length;
 
       for (let i = 0; i < rows.length; i++) {
-        const [name, phone, email, contact_name, street_address, city, state, zip, region] = rows[i].split(',').map(field => field.replace(/^"|"$/g, '').trim());
+        const [name, phone, email, , street_address, city, state, zip, region] = rows[i].split(',').map(field => field.replace(/^"|"$/g, '').trim()); // Skip contract_name
         const progressPercent = Math.round(((i + 1) / total) * 100);
         setProgress(progressPercent);
+
+        // Validate state
+        if (!state || !validStates.includes(state)) {
+          console.warn(`Invalid state "${state}" for venue ${name}, skipping row`);
+          setImportedItems(prev => [...prev, { name, status: 'Failed', error: `Invalid state: ${state} (must be MA, RI, NH, CT, ME, or VT)` }]);
+          continue;
+        }
 
         try {
           const venueData = {
             name: name || 'Unnamed Venue',
             phone: phone || null,
             email: email || null,
-            contact_name: contact_name || null,
             street_address: street_address || null,
             city: city || null,
             state: state || null,
@@ -70,6 +89,8 @@ export default function ImportVenuesModal({ isOpen, onClose, onSuccess }: Import
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           };
+
+          console.log('Inserting venue data:', venueData);
 
           const { data, error } = await supabase
             .from('venues')

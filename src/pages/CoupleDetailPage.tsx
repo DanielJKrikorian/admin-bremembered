@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Users, User, MapPin, Calendar, Package, CreditCard, MessageSquare, Clock, Check, XCircle, AlertCircle, Star, Edit, Phone, Save, Plus, Mail, Key, ChevronDown, ChevronUp } from 'lucide-react';
+import { Users, User, MapPin, Calendar, Package, CreditCard, MessageSquare, Clock, Check, XCircle, AlertCircle, Star, Edit, Phone, Save, Plus, Mail, Key, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
@@ -112,6 +112,7 @@ export default function CoupleDetailPage() {
     phone: false,
     email: false,
     guest_count: false,
+    venue: false,
   });
   const [formData, setFormData] = useState({
     name: '',
@@ -123,6 +124,16 @@ export default function CoupleDetailPage() {
     phone: '',
     email: '',
     guest_count: '',
+    venue_search: '',
+    venue_id: '',
+    venue_name: '',
+    venue_street_address: '',
+    venue_city: '',
+    venue_state: '',
+    venue_zip: '',
+    venue_phone: '',
+    venue_email: '',
+    venue_contact_name: '',
   });
   const [newReview, setNewReview] = useState({ rating: 5, review_text: '', vendor_id: null as string | null });
   const [showAddReview, setShowAddReview] = useState(false);
@@ -131,6 +142,8 @@ export default function CoupleDetailPage() {
   const [expandedBooking, setExpandedBooking] = useState<string | null>(null);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   const [expandedPackage, setExpandedPackage] = useState<string | null>(null);
+  const [venueSuggestions, setVenueSuggestions] = useState<Venue[]>([]);
+  const [showAddVenueForm, setShowAddVenueForm] = useState(false);
 
   useEffect(() => {
     fetchCoupleData();
@@ -168,6 +181,16 @@ export default function CoupleDetailPage() {
         phone: coupleData.phone || '',
         email: coupleData.email || '',
         guest_count: coupleData.guest_count ? coupleData.guest_count.toString() : '',
+        venue_search: '',
+        venue_id: coupleData.venue_id || '',
+        venue_name: coupleData.venue_name || '',
+        venue_street_address: '',
+        venue_city: coupleData.venue_city || '',
+        venue_state: coupleData.venue_state || '',
+        venue_zip: '',
+        venue_phone: '',
+        venue_email: '',
+        venue_contact_name: '',
       });
 
       // Fetch email from users table
@@ -344,7 +367,7 @@ export default function CoupleDetailPage() {
         const { data: paymentsData, error: paymentsError } = await supabase
           .from('payments')
           .select('id, booking_id, amount, status, created_at')
-          .in('booking_id', bookingIds);
+          .in('id', bookingIds);
         if (paymentsError) {
           console.error('Payments fetch error:', paymentsError);
           throw paymentsError;
@@ -447,6 +470,12 @@ export default function CoupleDetailPage() {
         case 'guest_count':
           updateData.guest_count = formData.guest_count ? parseInt(formData.guest_count) : null;
           break;
+        case 'venue':
+          updateData.venue_id = formData.venue_id || null;
+          updateData.venue_name = formData.venue_name || null;
+          updateData.venue_city = formData.venue_city || null;
+          updateData.venue_state = formData.venue_state || null;
+          break;
         default:
           return;
       }
@@ -462,6 +491,16 @@ export default function CoupleDetailPage() {
       }
 
       setCouple(prev => prev ? { ...prev, ...updateData } : null);
+      if (field === 'venue' && formData.venue_id) {
+        const { data: venueData } = await supabase
+          .from('venues')
+          .select('id, name, street_address, city, state, zip')
+          .eq('id', formData.venue_id)
+          .single();
+        setVenue(venueData);
+      } else if (field === 'venue' && !formData.venue_id) {
+        setVenue(null);
+      }
       toast.success(`${field.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())} updated successfully!`);
     } catch (error: any) {
       console.error(`Error updating ${field}:`, error);
@@ -469,6 +508,95 @@ export default function CoupleDetailPage() {
     } finally {
       setLoading(false);
       setEditMode(prev => ({ ...prev, [field]: false }));
+    }
+  };
+
+  const handleVenueSearch = async (query: string) => {
+    if (query.length < 2) {
+      setVenueSuggestions([]);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('venues')
+        .select('id, name, street_address, city, state, zip')
+        .or(`name.ilike.%${query}%,street_address.ilike.%${query}%,city.ilike.%${query}%,state.ilike.%${query}%,zip.ilike.%${query}%`)
+        .limit(5);
+      if (error) throw error;
+      console.log('Venue suggestions:', data);
+      setVenueSuggestions(data || []);
+    } catch (error: any) {
+      console.error('Venue search error:', error);
+      toast.error('Failed to search venues');
+    }
+  };
+
+  const handleSelectVenue = (venue: Venue) => {
+    setFormData({
+      ...formData,
+      venue_id: venue.id,
+      venue_name: venue.name,
+      venue_street_address: venue.street_address || '',
+      venue_city: venue.city || '',
+      venue_state: venue.state || '',
+      venue_zip: venue.zip || '',
+      venue_search: '',
+    });
+    setVenueSuggestions([]);
+  };
+
+  const handleAddVenue = async () => {
+    if (!formData.venue_name.trim()) {
+      toast.error('Venue name is required');
+      return;
+    }
+    setLoading(true);
+    try {
+      const newVenue = {
+        id: crypto.randomUUID(),
+        name: formData.venue_name.trim(),
+        street_address: formData.venue_street_address.trim() || null,
+        city: formData.venue_city.trim() || null,
+        state: formData.venue_state.trim() || null,
+        zip: formData.venue_zip.trim() || null,
+        phone: formData.venue_phone.trim() || null,
+        email: formData.venue_email.trim() || null,
+        contact_name: formData.venue_contact_name.trim() || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        booking_count: 0,
+      };
+
+      const { error } = await supabase
+        .from('venues')
+        .insert(newVenue);
+
+      if (error) {
+        console.error('Add venue error:', error);
+        throw error;
+      }
+
+      setFormData({
+        ...formData,
+        venue_id: newVenue.id,
+        venue_name: newVenue.name,
+        venue_street_address: newVenue.street_address || '',
+        venue_city: newVenue.city || '',
+        venue_state: newVenue.state || '',
+        venue_zip: newVenue.zip || '',
+        venue_phone: newVenue.phone || '',
+        venue_email: newVenue.email || '',
+        venue_contact_name: newVenue.contact_name || '',
+        venue_search: '',
+      });
+      setShowAddVenueForm(false);
+      toast.success('Venue added successfully!');
+      await handleSaveField('venue');
+    } catch (error: any) {
+      console.error('Error adding venue:', error);
+      toast.error('Failed to add venue');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -710,38 +838,20 @@ export default function CoupleDetailPage() {
             )}
           </div>
           <div>
-            {editMode.partner1_name || editMode.partner2_name ? (
+            {editMode.partner1_name ? (
               <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="partner1_name" className="text-sm font-medium text-gray-700 mb-2">Partner 1 Name</label>
-                    <input
-                      type="text"
-                      id="partner1_name"
-                      value={formData.partner1_name}
-                      onChange={(e) => setFormData({ ...formData, partner1_name: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="e.g., Alex"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="partner2_name" className="text-sm font-medium text-gray-700 mb-2">Partner 2 Name</label>
-                    <input
-                      type="text"
-                      id="partner2_name"
-                      value={formData.partner2_name}
-                      onChange={(e) => setFormData({ ...formData, partner2_name: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="e.g., Taylor"
-                    />
-                  </div>
-                </div>
+                <label htmlFor="partner1_name" className="text-sm font-medium text-gray-700 mb-2">Partner 1 Name</label>
+                <input
+                  type="text"
+                  id="partner1_name"
+                  value={formData.partner1_name}
+                  onChange={(e) => setFormData({ ...formData, partner1_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="e.g., Alex"
+                />
                 <div className="mt-2 space-x-2">
                   <button
-                    onClick={() => {
-                      handleSaveField('partner1_name');
-                      handleSaveField('partner2_name');
-                    }}
+                    onClick={() => handleSaveField('partner1_name')}
                     className="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
                     disabled={loading}
                   >
@@ -749,7 +859,7 @@ export default function CoupleDetailPage() {
                     Save
                   </button>
                   <button
-                    onClick={() => setEditMode(prev => ({ ...prev, partner1_name: false, partner2_name: false }))}
+                    onClick={() => setEditMode(prev => ({ ...prev, partner1_name: false }))}
                     className="inline-flex items-center px-3 py-1 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700"
                   >
                     Cancel
@@ -758,14 +868,53 @@ export default function CoupleDetailPage() {
               </>
             ) : (
               <>
-                <label className="text-sm font-medium text-gray-500">Partners</label>
-                <p className="text-sm text-gray-900">
-                  {couple.partner1_name && couple.partner2_name
-                    ? `${couple.partner1_name} & ${couple.partner2_name}`
-                    : 'Not specified'}
-                </p>
+                <label className="text-sm font-medium text-gray-500">Partner 1 Name</label>
+                <p className="text-sm text-gray-900">{couple.partner1_name || 'Not specified'}</p>
                 <button
-                  onClick={() => setEditMode(prev => ({ ...prev, partner1_name: true, partner2_name: true }))}
+                  onClick={() => setEditMode(prev => ({ ...prev, partner1_name: true }))}
+                  className="mt-2 inline-flex items-center px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  Edit
+                </button>
+              </>
+            )}
+          </div>
+          <div>
+            {editMode.partner2_name ? (
+              <>
+                <label htmlFor="partner2_name" className="text-sm font-medium text-gray-700 mb-2">Partner 2 Name</label>
+                <input
+                  type="text"
+                  id="partner2_name"
+                  value={formData.partner2_name}
+                  onChange={(e) => setFormData({ ...formData, partner2_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="e.g., Taylor"
+                />
+                <div className="mt-2 space-x-2">
+                  <button
+                    onClick={() => handleSaveField('partner2_name')}
+                    className="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                    disabled={loading}
+                  >
+                    <Save className="h-4 w-4 mr-1" />
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditMode(prev => ({ ...prev, partner2_name: false }))}
+                    className="inline-flex items-center px-3 py-1 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="text-sm font-medium text-gray-500">Partner 2 Name</label>
+                <p className="text-sm text-gray-900">{couple.partner2_name || 'Not specified'}</p>
+                <button
+                  onClick={() => setEditMode(prev => ({ ...prev, partner2_name: true }))}
                   className="mt-2 inline-flex items-center px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
                 >
                   <Edit className="h-4 w-4 mr-1" />
@@ -1053,27 +1202,247 @@ export default function CoupleDetailPage() {
         )}
       </div>
 
-      {venue && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-            <MapPin className="h-5 w-5 text-blue-600 mr-2" />
-            Venue Information
-          </h2>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+          <MapPin className="h-5 w-5 text-blue-600 mr-2" />
+          Venue Information
+        </h2>
+        {editMode.venue ? (
+          <div className="space-y-4">
+            <div className="relative">
+              <label htmlFor="venue_search" className="text-sm font-medium text-gray-700 mb-2">Search Venue</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  id="venue_search"
+                  value={formData.venue_search}
+                  onChange={(e) => {
+                    setFormData({ ...formData, venue_search: e.target.value });
+                    handleVenueSearch(e.target.value);
+                  }}
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Search for a venue or address..."
+                />
+              </div>
+              {venueSuggestions.length > 0 && (
+                <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
+                  {venueSuggestions.map((v) => (
+                    <div
+                      key={v.id}
+                      className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                      onClick={() => handleSelectVenue(v)}
+                    >
+                      <p className="text-sm font-medium text-gray-900">{v.name}</p>
+                      <p className="text-xs text-gray-600">
+                        {v.street_address ? `${v.street_address}, ` : ''}
+                        {v.city && v.state ? `${v.city}, ${v.state} ${v.zip || ''}` : ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setShowAddVenueForm(true)}
+              className="inline-flex items-center px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add New Venue
+            </button>
+            {(formData.venue_id || showAddVenueForm) && (
+              <>
+                {showAddVenueForm ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="venue_name" className="text-sm font-medium text-gray-700 mb-2">Venue Name *</label>
+                      <input
+                        type="text"
+                        id="venue_name"
+                        value={formData.venue_name}
+                        onChange={(e) => setFormData({ ...formData, venue_name: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="e.g., Willow Creek Vineyard"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="venue_street_address" className="text-sm font-medium text-gray-700 mb-2">Street Address</label>
+                      <input
+                        type="text"
+                        id="venue_street_address"
+                        value={formData.venue_street_address}
+                        onChange={(e) => setFormData({ ...formData, venue_street_address: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="e.g., 123 Main St"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label htmlFor="venue_city" className="text-sm font-medium text-gray-700 mb-2">City</label>
+                        <input
+                          type="text"
+                          id="venue_city"
+                          value={formData.venue_city}
+                          onChange={(e) => setFormData({ ...formData, venue_city: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="e.g., Napa"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="venue_state" className="text-sm font-medium text-gray-700 mb-2">State</label>
+                        <input
+                          type="text"
+                          id="venue_state"
+                          value={formData.venue_state}
+                          onChange={(e) => setFormData({ ...formData, venue_state: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          placeholder="e.g., CA"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label htmlFor="venue_zip" className="text-sm font-medium text-gray-700 mb-2">ZIP</label>
+                      <input
+                        type="text"
+                        id="venue_zip"
+                        value={formData.venue_zip}
+                        onChange={(e) => setFormData({ ...formData, venue_zip: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="e.g., 94558"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="venue_phone" className="text-sm font-medium text-gray-700 mb-2">Phone</label>
+                      <input
+                        type="tel"
+                        id="venue_phone"
+                        value={formData.venue_phone}
+                        onChange={(e) => setFormData({ ...formData, venue_phone: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="e.g., (555) 123-4567"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="venue_email" className="text-sm font-medium text-gray-700 mb-2">Email</label>
+                      <input
+                        type="email"
+                        id="venue_email"
+                        value={formData.venue_email}
+                        onChange={(e) => setFormData({ ...formData, venue_email: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="e.g., contact@venue.com"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="venue_contact_name" className="text-sm font-medium text-gray-700 mb-2">Contact Name</label>
+                      <input
+                        type="text"
+                        id="venue_contact_name"
+                        value={formData.venue_contact_name}
+                        onChange={(e) => setFormData({ ...formData, venue_contact_name: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder="e.g., Jane Doe"
+                      />
+                    </div>
+                    <div className="flex justify-end space-x-3">
+                      <button
+                        onClick={() => {
+                          setShowAddVenueForm(false);
+                          setFormData({
+                            ...formData,
+                            venue_name: couple.venue_name || '',
+                            venue_street_address: '',
+                            venue_city: couple.venue_city || '',
+                            venue_state: couple.venue_state || '',
+                            venue_zip: '',
+                            venue_phone: '',
+                            venue_email: '',
+                            venue_contact_name: '',
+                          });
+                        }}
+                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleAddVenue}
+                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        disabled={loading || !formData.venue_name.trim()}
+                      >
+                        <Save className="h-4 w-4 mr-1" />
+                        Add Venue
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700 mb-2">Selected Venue</label>
+                      <p className="text-sm text-gray-900">{formData.venue_name || 'None selected'}</p>
+                      <p className="text-sm text-gray-600">
+                        {formData.venue_street_address || ''}{formData.venue_city && formData.venue_state ? `, ${formData.venue_city}, ${formData.venue_state} ${formData.venue_zip || ''}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex justify-end space-x-3">
+                      <button
+                        onClick={() => {
+                          setEditMode(prev => ({ ...prev, venue: false }));
+                          setFormData({
+                            ...formData,
+                            venue_id: couple.venue_id || '',
+                            venue_name: couple.venue_name || '',
+                            venue_street_address: '',
+                            venue_city: couple.venue_city || '',
+                            venue_state: couple.venue_state || '',
+                            venue_zip: '',
+                            venue_search: '',
+                          });
+                          setVenueSuggestions([]);
+                        }}
+                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleSaveField('venue')}
+                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        disabled={loading}
+                      >
+                        <Save className="h-4 w-4 mr-1" />
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="text-sm font-medium text-gray-500">Venue Name</label>
-              <p className="text-sm text-gray-900">{venue.name}</p>
+              <p className="text-sm text-gray-900">{venue?.name || 'No venue selected'}</p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-500">Address</label>
               <p className="text-sm text-gray-900">
-                {venue.street_address || 'No address provided'}
-                {venue.city && venue.state && `, ${venue.city}, ${venue.state} ${venue.zip || ''}`}
+                {venue?.street_address || 'No address provided'}
+                {venue?.city && venue?.state ? `, ${venue.city}, ${venue.state} ${venue.zip || ''}` : ''}
               </p>
             </div>
+            <div className="col-span-2">
+              <button
+                onClick={() => setEditMode(prev => ({ ...prev, venue: true }))}
+                className="inline-flex items-center px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
+              >
+                <Edit className="h-4 w-4 mr-1" />
+                Edit Venue
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">

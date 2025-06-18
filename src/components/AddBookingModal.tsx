@@ -4,7 +4,8 @@ import { Fragment } from 'react';
 import { Plus, Save } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
-import AddVenueModal from './AddVenueModal'; // Import the new component
+import AddVenueModal from './AddVenueModal';
+import Select from 'react-select';
 
 interface AddBookingModalProps {
   isOpen: boolean;
@@ -15,6 +16,8 @@ interface AddBookingModalProps {
 interface Couple {
   id: string;
   name: string;
+  partner1_name: string;
+  partner2_name: string;
 }
 
 interface Vendor {
@@ -43,11 +46,17 @@ interface Venue {
   region: string | null;
 }
 
+interface Option {
+  value: string;
+  label: string;
+}
+
 export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBookingModalProps) {
   const [formData, setFormData] = useState({
     couple_id: '',
     vendor_id: '',
     service_type: '',
+    event_type: 'wedding',
     amount: '',
     status: 'pending',
     venue_id: '',
@@ -70,7 +79,7 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
   const fetchOptions = async () => {
     try {
       const [couplesData, vendorsData, packagesData, venuesData] = await Promise.all([
-        supabase.from('couples').select('id, name'),
+        supabase.from('couples').select('id, name, partner1_name, partner2_name'),
         supabase.from('vendors').select('id, name'),
         supabase.from('service_packages').select('id, name, description, price, service_type'),
         supabase.from('venues').select('id, name, phone, email, contact_name, street_address, city, state, zip, region')
@@ -102,7 +111,8 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
         ...prev,
         package_id: packageId,
         service_type: selectedPackage.service_type,
-        amount: (selectedPackage.price / 100).toString() // Convert cents to dollars for display
+        amount: (selectedPackage.price / 100).toString(),
+        event_type: selectedPackage.service_type // Set event_type to match service_type initially
       }));
     }
   };
@@ -113,8 +123,16 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
 
   const handleVenueAdded = (venueId: string) => {
     setFormData(prev => ({ ...prev, venue_id: venueId }));
-    setVenues(prev => [...prev, { id: venueId, name: 'New Venue' } as Venue]); // Placeholder name, update if needed
-    setSearchVenue('New Venue'); // Update search to reflect new venue
+    setVenues(prev => [...prev, { id: venueId, name: 'New Venue' } as Venue]);
+    setSearchVenue('New Venue');
+  };
+
+  const handleCoupleChange = (option: Option | null) => {
+    setFormData(prev => ({ ...prev, couple_id: option?.value || '' }));
+  };
+
+  const handleVendorChange = (option: Option | null) => {
+    setFormData(prev => ({ ...prev, vendor_id: option?.value || '' }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -126,52 +144,67 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
         throw new Error('Please fill all required fields');
       }
 
-      const amount = formData.amount ? parseInt(formData.amount) * 100 : 0; // Convert dollars to cents
-      const bookingData = {
-        couple_id: formData.couple_id,
-        vendor_id: formData.vendor_id,
-        status: formData.status,
-        amount,
-        service_type: formData.service_type || 'Unknown',
-        package_id: formData.package_id || null,
-        venue_id: formData.venue_id || null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
+      const amount = formData.amount ? parseInt(formData.amount) * 100 : 0;
+      console.log('Submitting booking with data:', {
+        p_couple_id: formData.couple_id,
+        p_vendor_id: formData.vendor_id,
+        p_status: formData.status,
+        p_amount: amount,
+        p_service_type: formData.service_type || 'Unknown',
+        p_event_type: formData.event_type || 'wedding',
+        p_package_id: formData.package_id || null,
+        p_venue_id: formData.venue_id || null,
+        p_start_time: new Date(formData.start_time).toISOString(),
+        p_end_time: new Date(formData.end_time).toISOString()
+      });
+      const { data, error } = await supabase.rpc('create_booking_and_event', {
+        p_couple_id: formData.couple_id,
+        p_vendor_id: formData.vendor_id,
+        p_status: formData.status,
+        p_amount: amount,
+        p_service_type: formData.service_type || 'Unknown',
+        p_event_type: formData.event_type || 'wedding',
+        p_package_id: formData.package_id || null,
+        p_venue_id: formData.venue_id || null,
+        p_start_time: new Date(formData.start_time).toISOString(),
+        p_end_time: new Date(formData.end_time).toISOString()
+      });
 
-      const { data: bookingResult, error: bookingError } = await supabase
-        .from('bookings')
-        .insert(bookingData)
-        .select('id')
-        .single();
+      if (error) {
+        console.error('RPC Error:', error);
+        throw error;
+      }
 
-      if (bookingError) throw bookingError;
-
-      const eventData = {
-        couple_id: formData.couple_id,
-        vendor_id: formData.vendor_id,
-        start_time: new Date(formData.start_time).toISOString(),
-        end_time: new Date(formData.end_time).toISOString(),
-        type: formData.service_type || 'Event',
-        title: `${couples.find(c => c.id === formData.couple_id)?.name} - ${formData.service_type}`,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      await supabase.from('events').insert(eventData);
-
+      console.log('Booking and event created:', data);
       toast.success('Booking and event added successfully!');
       onSuccess();
       onClose();
     } catch (error: any) {
-      console.error('Error adding booking:', error);
-      toast.error(error.message || 'Failed to add booking');
+      console.error('Error adding booking and event:', error);
+      toast.error(error.message || 'Failed to add booking and event');
     } finally {
       setLoading(false);
     }
   };
 
   if (!isOpen) return null;
+
+  // Prepare options for react-select
+  const coupleOptions: Option[] = couples.map(couple => ({
+    value: couple.id,
+    label: `${couple.partner1_name} & ${couple.partner2_name || 'Partner'}`
+  }));
+  const vendorOptions: Option[] = vendors.map(vendor => ({ value: vendor.id, label: vendor.name }));
+
+  // Event type options
+  const eventTypeOptions = [
+    { value: 'wedding', label: 'Wedding' },
+    { value: 'engagement', label: 'Engagement' },
+    { value: 'consultation', label: 'Consultation' },
+    { value: 'intro_meeting', label: 'Intro Meeting' },
+    { value: 'ceremony', label: 'Ceremony' },
+    { value: 'blocked', label: 'Blocked' }
+  ];
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
@@ -207,35 +240,31 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
                   <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                       <label htmlFor="couple_id" className="block text-sm font-medium text-gray-700">Couple *</label>
-                      <select
+                      <Select
                         id="couple_id"
-                        name="couple_id"
-                        value={formData.couple_id}
-                        onChange={handleChange}
+                        options={coupleOptions}
+                        value={coupleOptions.find(option => option.value === formData.couple_id)}
+                        onChange={handleCoupleChange}
+                        placeholder="Search for a couple..."
+                        className="w-full"
+                        classNamePrefix="react-select"
+                        isSearchable
                         required
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Select a couple</option>
-                        {couples.map(couple => (
-                          <option key={couple.id} value={couple.id}>{couple.name}</option>
-                        ))}
-                      </select>
+                      />
                     </div>
                     <div>
                       <label htmlFor="vendor_id" className="block text-sm font-medium text-gray-700">Vendor *</label>
-                      <select
+                      <Select
                         id="vendor_id"
-                        name="vendor_id"
-                        value={formData.vendor_id}
-                        onChange={handleChange}
+                        options={vendorOptions}
+                        value={vendorOptions.find(option => option.value === formData.vendor_id)}
+                        onChange={handleVendorChange}
+                        placeholder="Search for a vendor..."
+                        className="w-full"
+                        classNamePrefix="react-select"
+                        isSearchable
                         required
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Select a vendor</option>
-                        {vendors.map(vendor => (
-                          <option key={vendor.id} value={vendor.id}>{vendor.name}</option>
-                        ))}
-                      </select>
+                      />
                     </div>
                     <div>
                       <label htmlFor="package_id" className="block text-sm font-medium text-gray-700">Service Package *</label>
@@ -263,6 +292,20 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
                         onChange={handleChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100"
                         readOnly
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="event_type" className="block text-sm font-medium text-gray-700">Event Type *</label>
+                      <Select
+                        id="event_type"
+                        options={eventTypeOptions}
+                        value={eventTypeOptions.find(option => option.value === formData.event_type)}
+                        onChange={(option) => setFormData(prev => ({ ...prev, event_type: option?.value || 'wedding' }))}
+                        placeholder="Select event type..."
+                        className="w-full"
+                        classNamePrefix="react-select"
+                        isSearchable
+                        required
                       />
                     </div>
                     <div>
@@ -299,12 +342,18 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
                         name="venue_id"
                         value={searchVenue}
                         onChange={handleVenueSearch}
-                        placeholder="Search or add a venue..."
+                        placeholder="Search by name, address, city, state, or zip..."
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <div className="mt-2 max-h-40 overflow-y-auto border border-gray-300 rounded-lg">
                         {venues
-                          .filter(venue => venue.name?.toLowerCase().includes(searchVenue.toLowerCase()))
+                          .filter(venue =>
+                            (venue.name?.toLowerCase().includes(searchVenue.toLowerCase()) || 
+                             venue.street_address?.toLowerCase().includes(searchVenue.toLowerCase()) || 
+                             venue.city?.toLowerCase().includes(searchVenue.toLowerCase()) || 
+                             venue.state?.toLowerCase().includes(searchVenue.toLowerCase()) || 
+                             venue.zip?.toLowerCase().includes(searchVenue.toLowerCase()))
+                          )
                           .map(venue => (
                             <div
                               key={venue.id}
@@ -314,7 +363,7 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
                               }}
                               className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
                             >
-                              {venue.name}
+                              {venue.name} {venue.street_address && `(${venue.street_address})`} {venue.city && `, ${venue.city}`} {venue.state && `, ${venue.state}`} {venue.zip}
                             </div>
                           ))}
                         <div

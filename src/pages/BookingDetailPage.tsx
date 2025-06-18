@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Calendar, Edit, Save, X, Check, Clock, AlertCircle, CreditCard, Package, MapPin, Eye } from 'lucide-react';
+import { Calendar, Edit, Save, X, Check, Clock, AlertCircle, CreditCard, Package, MapPin, Eye, Mail, MessageSquare } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
@@ -8,6 +8,7 @@ interface Booking {
   id: string;
   couple_id: string;
   couple_name: string | null;
+  couple_email: string | null;
   vendor_id: string;
   vendor_name: string | null;
   vendor_phone: string | null;
@@ -44,6 +45,29 @@ interface Payment {
   to_platform: boolean;
 }
 
+interface EmailLog {
+  id: string;
+  booking_id: string;
+  vendor_id: string;
+  couple_id: string;
+  email_to: string;
+  subject: string;
+  sent_at: string;
+  opened_at: string | null;
+  opened: boolean;
+  type: string;
+  content: string;
+}
+
+interface UpcomingReminder {
+  id: string;
+  booking_id: string;
+  event_id: string;
+  type: 'Email' | 'Text' | 'Feedback';
+  scheduled_at: string;
+  recipient: string;
+}
+
 export default function BookingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -54,6 +78,8 @@ export default function BookingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [eventPage, setEventPage] = useState(0);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
+  const [upcomingReminders, setUpcomingReminders] = useState<UpcomingReminder[]>([]);
 
   useEffect(() => {
     fetchBooking();
@@ -64,32 +90,43 @@ export default function BookingDetailPage() {
       setLoading(true);
       if (!id) throw new Error('Booking ID is undefined');
 
-      const { data: bookingData, error: bookingError } = await supabase
-        .from('bookings')
-        .select('id, couple_id, vendor_id, status, amount, service_type, package_id, created_at, venue_id')
-        .eq('id', id)
-        .single();
+      const [bookingData, emailLogsData, remindersData] = await Promise.all([
+        supabase
+          .from('bookings')
+          .select('id, couple_id, vendor_id, status, amount, service_type, package_id, created_at, venue_id')
+          .eq('id', id)
+          .single(),
+        supabase
+          .from('email_logs')
+          .select('*')
+          .eq('booking_id', id),
+        supabase
+          .from('upcoming_reminders')
+          .select('*')
+          .eq('booking_id', id)
+      ]);
 
-      if (bookingError) throw bookingError;
+      if (bookingData.error) throw bookingData.error;
+      if (emailLogsData.error) throw emailLogsData.error;
+      if (remindersData.error) throw remindersData.error;
 
-      // Lookup couple name
-      let coupleName = null;
-      if (bookingData.couple_id) {
+      let coupleName = null, coupleEmail = null;
+      if (bookingData.data.couple_id) {
         const { data: coupleData } = await supabase
           .from('couples')
-          .select('name')
-          .eq('id', bookingData.couple_id)
+          .select('partner1_name, email')
+          .eq('id', bookingData.data.couple_id)
           .single();
-        coupleName = coupleData?.name || 'Unknown';
+        coupleName = coupleData?.partner1_name || 'Unknown';
+        coupleEmail = coupleData?.email || null;
       }
 
-      // Lookup vendor details
       let vendorName = null, vendorPhone = null, vendorEmail = null;
-      if (bookingData.vendor_id) {
+      if (bookingData.data.vendor_id) {
         const { data: vendorData } = await supabase
           .from('vendors')
           .select('name, phone, user_id')
-          .eq('id', bookingData.vendor_id)
+          .eq('id', bookingData.data.vendor_id)
           .single();
         vendorName = vendorData?.name || 'Unknown';
         vendorPhone = vendorData?.phone || null;
@@ -103,13 +140,12 @@ export default function BookingDetailPage() {
         }
       }
 
-      // Lookup venue details
       let venueName = null, venueAddress = null;
-      if (bookingData.venue_id) {
+      if (bookingData.data.venue_id) {
         const { data: venueData } = await supabase
           .from('venues')
           .select('name, street_address, city, state, zip')
-          .eq('id', bookingData.venue_id)
+          .eq('id', bookingData.data.venue_id)
           .single();
         venueName = venueData?.name || null;
         venueAddress = venueData
@@ -118,30 +154,27 @@ export default function BookingDetailPage() {
         setVenue(venueData || null);
       }
 
-      // Lookup package details (optional)
       let packageName = null, packageDescription = null, packagePrice = null;
-      if (bookingData.package_id) {
+      if (bookingData.data.package_id) {
         const { data: packageData } = await supabase
           .from('service_packages')
           .select('name, description, price')
-          .eq('id', bookingData.package_id)
+          .eq('id', bookingData.data.package_id)
           .single();
         packageName = packageData?.name || null;
         packageDescription = packageData?.description || null;
         packagePrice = packageData?.price || null;
       }
 
-      // Fetch related events with pagination
       const { data: eventsData } = await supabase
         .from('events')
         .select('id, start_time, end_time, title')
-        .eq('couple_id', bookingData.couple_id)
-        .eq('vendor_id', bookingData.vendor_id)
-        .gte('start_time', new Date().toISOString()) // Future events only
+        .eq('couple_id', bookingData.data.couple_id)
+        .eq('vendor_id', bookingData.data.vendor_id)
+        .gte('start_time', new Date().toISOString())
         .order('start_time', { ascending: true })
-        .range(eventPage * 5, eventPage * 5 + 4); // 5 events per page
+        .range(eventPage * 5, eventPage * 5 + 4);
 
-      // Fetch related payments
       const { data: paymentsData, error: paymentsError } = await supabase
         .from('payments')
         .select('id, amount, status, stripe_payment_id, created_at, to_platform')
@@ -150,8 +183,9 @@ export default function BookingDetailPage() {
       if (paymentsError) throw paymentsError;
 
       setBooking({
-        ...bookingData,
+        ...bookingData.data,
         couple_name: coupleName,
+        couple_email: coupleEmail,
         vendor_name: vendorName,
         vendor_phone: vendorPhone,
         vendor_email: vendorEmail,
@@ -163,7 +197,8 @@ export default function BookingDetailPage() {
         events: eventsData || []
       });
       setPayments(paymentsData || []);
-      setFormData({ status: bookingData.status });
+      setEmailLogs(emailLogsData.data || []);
+      setUpcomingReminders(remindersData.data || []);
     } catch (error: any) {
       console.error('Error fetching booking:', error);
       toast.error('Failed to load booking');
@@ -206,6 +241,63 @@ export default function BookingDetailPage() {
     }
   };
 
+  const sendReminderEmail = async () => {
+    if (!booking?.vendor_email) {
+      toast.error('No vendor email available');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.functions.invoke('send-reminder-email', {
+        body: { user_id: booking.vendor_email, booking_id: booking.id },
+      });
+      if (error) throw error;
+      toast.success('Reminder email sent successfully');
+      fetchBooking(); // Refresh email logs and upcoming reminders
+    } catch (error: any) {
+      console.error('Error sending reminder email:', error);
+      toast.error('Failed to send reminder email');
+    }
+  };
+
+  const sendReminderText = async () => {
+    if (!booking?.vendor_phone) {
+      toast.error('No vendor phone number available');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.functions.invoke('send-reminder-text', {
+        body: { phone: booking.vendor_phone, booking_id: booking.id },
+      });
+      if (error) throw error;
+      toast.success('Reminder text sent successfully');
+      fetchBooking(); // Refresh email logs and upcoming reminders
+    } catch (error: any) {
+      console.error('Error sending reminder text:', error);
+      toast.error('Failed to send reminder text');
+    }
+  };
+
+  const sendFeedbackEmail = async () => {
+    if (!booking?.couple_email) {
+      toast.error('No couple email available');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.functions.invoke('send-followup-email', {
+        body: { couple_id: booking.couple_id, booking_id: booking.id, delay_hours: 0 },
+      });
+      if (error) throw error;
+      toast.success('Feedback email sent successfully');
+      fetchBooking(); // Refresh email logs and upcoming reminders
+    } catch (error: any) {
+      console.error('Error sending feedback email:', error);
+      toast.error('Failed to send feedback email');
+    }
+  };
+
   if (loading || !booking) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -240,18 +332,40 @@ export default function BookingDetailPage() {
           <div>
             <label className="text-sm font-medium text-gray-500">Couple</label>
             <p className="text-sm text-gray-900">{booking.couple_name}</p>
+            <div className="mt-2">
+              <button
+                onClick={sendFeedbackEmail}
+                className="inline-flex items-center px-3 py-1 bg-purple-600 text-white text-sm rounded-md hover:bg-purple-700"
+              >
+                <Mail className="h-4 w-4 mr-1" />
+                Send Feedback Request
+              </button>
+            </div>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-500">Vendor</label>
             <p className="text-sm text-gray-900">{booking.vendor_name}</p>
+            <p className="text-sm text-gray-600">{booking.vendor_email || 'No email'}</p> {/* Restored vendor email display */}
           </div>
           <div>
             <label className="text-sm font-medium text-gray-500">Vendor Phone</label>
             <p className="text-sm text-gray-900">{booking.vendor_phone || 'N/A'}</p>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-gray-500">Vendor Email</label>
-            <p className="text-sm text-gray-900">{booking.vendor_email || 'N/A'}</p>
+            <div className="mt-2 space-x-2">
+              <button
+                onClick={sendReminderEmail}
+                className="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+              >
+                <Mail className="h-4 w-4 mr-1" />
+                Send Email Reminder
+              </button>
+              <button
+                onClick={sendReminderText}
+                className="inline-flex items-center px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700"
+              >
+                <MessageSquare className="h-4 w-4 mr-1" />
+                Send Text Reminder
+              </button>
+            </div>
           </div>
           <div>
             {editMode.status ? (
@@ -425,6 +539,74 @@ export default function BookingDetailPage() {
             <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No payments found</h3>
             <p className="text-gray-500">No payments associated with this booking.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Upcoming Reminders</h2>
+        {upcomingReminders.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scheduled At</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Recipient</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {upcomingReminders.map((reminder) => (
+                  <tr key={reminder.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">{reminder.type}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{new Date(reminder.scheduled_at).toLocaleString()}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{reminder.recipient}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No upcoming reminders</h3>
+            <p className="text-gray-500">All reminders are either sent or not scheduled yet.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Email/Text Logs</h2>
+        {emailLogs.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">To</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sent At</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Opened</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {emailLogs.map((log) => (
+                  <tr key={log.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">{log.email_to}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{log.subject}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{new Date(log.sent_at).toLocaleString()}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{log.opened_at ? new Date(log.opened_at).toLocaleString() : 'Not Opened'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{log.type}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <Mail className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No email logs</h3>
+            <p className="text-gray-500">No emails or texts have been sent for this booking yet.</p>
           </div>
         )}
       </div>

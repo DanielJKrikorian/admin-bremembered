@@ -44,7 +44,6 @@ const navigation = [
       { name: 'Venues', href: '/dashboard/venues', icon: MapPin },
       { name: 'Timelines', href: '/dashboard/timelines', icon: Calendar },
       { name: 'Contracts', href: '/dashboard/contracts', icon: Calendar },
-      { name: 'Issues', href: '/dashboard/issues', icon: AlertTriangle },
     ],
   },
   {
@@ -76,6 +75,7 @@ const navigation = [
       { name: 'Reviews', href: '/dashboard/reviews', icon: Calendar },
       { name: 'Support Reviews', href: '/dashboard/support-reviews', icon: Calendar },
       { name: 'FAQ', href: '/dashboard/faq', icon: HelpCircle },
+      { name: 'Issues', href: '/dashboard/issues', icon: AlertTriangle },
     ],
   },
   {

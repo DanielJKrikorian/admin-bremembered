@@ -1,4 +1,3 @@
-// src/pages/VendorDetailPage.tsx
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Building2, User, Calendar, MapPin, MessageSquare, Package, CreditCard, Check, Clock, AlertCircle, XCircle, Star, Edit, Phone, Save, Plus, Mail, Key } from 'lucide-react';
@@ -42,8 +41,11 @@ export default function VendorDetailPage() {
     updated_at: new Date().toISOString()
   });
   const [newReview, setNewReview] = useState({
-    rating: 5,
-    review_text: '',
+    communication_rating: 5,
+    experience_rating: 5,
+    quality_rating: 5,
+    overall_rating: 5,
+    feedback: '',
     couple_id: null as string | null
   });
   const [couples, setCouples] = useState<{ id: string; name: string }[]>([]);
@@ -78,7 +80,9 @@ export default function VendorDetailPage() {
             id, vendor_id, service_type, is_active, package_status, created_at, updated_at
           ),
           vendor_reviews (
-            id, vendor_id, couple_id, rating, review_text, vendor_response, created_at, updated_at
+            id, vendor_id, couple_id, communication_rating, feedback, vendor_response, created_at, updated_at,
+            experience_rating, quality_rating, overall_rating,
+            couples (name)
           ),
           vendor_service_packages (
             id, vendor_id, service_package_id, service_type, status, created_at, updated_at,
@@ -294,7 +298,7 @@ export default function VendorDetailPage() {
         } : null);
         setNewServicePackage({
           id: '',
-          vendor_id: vendor.id || '',
+          vendor_id: id || '',
           service_package_id: '',
           service_type: '',
           status: 'pending',
@@ -315,34 +319,59 @@ export default function VendorDetailPage() {
   };
 
   const handleAddReview = async () => {
-    if (!vendor || !newReview.review_text.trim() || !newReview.couple_id) return;
+    if (!vendor || !newReview.couple_id) return;
 
     setAddingReview(true);
     try {
-      const { data, error } = await supabase
+      console.log('Inserting review with payload:', {
+        vendor_id: vendor.id,
+        couple_id: newReview.couple_id,
+        communication_rating: newReview.communication_rating,
+        experience_rating: newReview.experience_rating,
+        quality_rating: newReview.quality_rating,
+        overall_rating: newReview.overall_rating,
+        feedback: newReview.feedback.trim() || null
+      }); // Debug payload
+      const { data, error, status } = await supabase
         .from('vendor_reviews')
         .insert({
           vendor_id: vendor.id,
           couple_id: newReview.couple_id,
-          rating: newReview.rating,
-          review_text: newReview.review_text.trim()
+          communication_rating: newReview.communication_rating,
+          experience_rating: newReview.experience_rating,
+          quality_rating: newReview.quality_rating,
+          overall_rating: newReview.overall_rating,
+          feedback: newReview.feedback.trim() || null
         })
-        .select()
-        .single();
+        .select(); // Ensure the inserted row is returned
 
+      console.log('Insert response:', { data, error, status }); // Debug response
       if (error) throw error;
 
-      setVendor(prev => prev ? {
-        ...prev,
-        vendor_reviews: [...(prev.vendor_reviews || []), data]
-      } : null);
+      // Check if data is valid before accessing [0]
+      if (data && data.length > 0) {
+        setVendor(prev => prev ? {
+          ...prev,
+          vendor_reviews: [...(prev.vendor_reviews || []), data[0]]
+        } : null);
+      } else {
+        console.warn('No data returned from insert, refreshing vendor data');
+        fetchVendor(); // Fallback to refresh vendor data
+      }
 
-      setNewReview({ rating: 5, review_text: '', couple_id: null });
-      setShowAddReview(false);
+      setNewReview({
+        communication_rating: 5,
+        experience_rating: 5,
+        quality_rating: 5,
+        overall_rating: 5,
+        feedback: '',
+        couple_id: null
+      });
+      // Do not close the form, allow adding another review
       toast.success('Review added successfully!');
     } catch (error: any) {
       console.error('Error adding review:', error);
-      toast.error('Failed to add review');
+      toast.error(`Failed to add review: ${error.message}`);
     } finally {
       setAddingReview(false);
     }
@@ -407,6 +436,35 @@ export default function VendorDetailPage() {
     }
   };
 
+  const handleToggleService = async (serviceId: string, isActive: boolean) => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('vendor_services')
+        .update({
+          is_active: true,
+          package_status: 'approved'
+        })
+        .eq('id', serviceId)
+        .select();
+
+      if (error) throw error;
+
+      setVendor(prev => prev ? {
+        ...prev,
+        vendor_services: prev.vendor_services?.map(service =>
+          service.id === serviceId ? { ...service, is_active: true, package_status: 'approved' } : service
+        )
+      } : null);
+      toast.success('Service activated successfully!');
+    } catch (error: any) {
+      console.error('Error toggling service:', error);
+      toast.error('Failed to toggle service');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'approved': return <Check className="h-4 w-4 text-green-600" />;
@@ -428,19 +486,23 @@ export default function VendorDetailPage() {
   const renderStars = (rating: number, interactive: boolean = false, onRatingChange?: (rating: number) => void) => {
     return (
       <div className="flex items-center space-x-1">
-        {[1, 2, 3, 4, 5].map((star) => (
-          <button
-            key={star}
-            type="button"
-            onClick={() => interactive && onRatingChange && onRatingChange(star)}
-            className={`${interactive ? 'cursor-pointer hover:scale-110' : 'cursor-default'} transition-transform`}
-            disabled={!interactive}
-          >
-            <Star
-              className={`h-5 w-5 ${star <= rating ? 'text-yellow-400 fill-current' : 'text-gray-300'}`}
-            />
-          </button>
-        ))}
+        {[1, 2, 3, 4, 5].map((star) => {
+          const fillLevel = Math.min(1, Math.max(0, rating - (star - 1)));
+          return (
+            <button
+              key={star}
+              type="button"
+              onClick={() => interactive && onRatingChange && onRatingChange(star)}
+              className={`${interactive ? 'cursor-pointer hover:scale-110' : 'cursor-default'} transition-transform`}
+              disabled={!interactive}
+            >
+              <Star
+                className={`h-5 w-5 ${fillLevel > 0 ? 'text-yellow-400 fill-current' : 'text-gray-300'}`}
+                style={{ clipPath: `inset(0 ${100 - fillLevel * 100}% 0 0)` }}
+              />
+            </button>
+          );
+        })}
       </div>
     );
   };
@@ -473,11 +535,11 @@ export default function VendorDetailPage() {
 
   if (!vendor) return null;
 
-  const activeServices = vendor.vendor_services?.filter(service => service.is_active) || [];
+  const activeServices = vendor.vendor_services || [];
   const vendorServicePackages = vendor.vendor_service_packages || [];
   const reviews = vendor.vendor_reviews || [];
   const averageRating = reviews.length > 0
-    ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+    ? reviews.reduce((sum, review) => sum + review.overall_rating, 0) / reviews.length
     : null;
 
   return (
@@ -486,6 +548,12 @@ export default function VendorDetailPage() {
         <h1 className="text-3xl font-bold text-gray-900 flex items-center">
           <Building2 className="h-8 w-8 text-blue-600 mr-3" />
           {vendor.name}
+          {vendor.rating !== null && vendor.rating !== undefined && (
+            <span className="ml-4 text-lg">
+              Rating: {vendor.rating.toFixed(2)}
+              {renderStars(vendor.rating)}
+            </span>
+          )}
         </h1>
         <div className="space-x-2">
           <button
@@ -814,54 +882,23 @@ export default function VendorDetailPage() {
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Active Services</h2>
         <div className="space-y-3">
           {activeServices.map((service) => (
-            <div key={service.id} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium text-blue-900">{service.service_type}</h4>
-                  <p className="text-sm text-blue-700">
-                    Package Status: <span className="font-medium">{service.package_status}</span>
-                  </p>
-                </div>
-                <div className="text-right">
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                    Active
-                  </span>
-                  <p className="text-xs text-blue-600 mt-1">
-                    Added: {new Date(service.created_at).toLocaleDateString()}
-                  </p>
-                </div>
+            <div key={service.id} className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center justify-between">
+              <div>
+                <h4 className="font-medium text-blue-900">{service.service_type}</h4>
+                <p className="text-sm text-blue-700">
+                  Package Status: <span className="font-medium">{service.package_status}</span>
+                </p>
               </div>
+              <button
+                onClick={() => handleToggleService(service.id, !service.is_active)}
+                className={`px-3 py-1 rounded-md text-sm ${service.is_active ? 'bg-green-600 text-white' : 'bg-gray-300 text-gray-700 hover:bg-gray-400'}`}
+                disabled={service.is_active}
+              >
+                {service.is_active ? 'Active' : 'Activate'}
+              </button>
             </div>
           ))}
         </div>
-        <form onSubmit={handleAddService} className="mt-4">
-          <h3 className="text-md font-semibold text-gray-900 mb-2">Add New Service</h3>
-          <input
-            type="text"
-            value={newService.service_type}
-            onChange={(e) => setNewService({ ...newService, service_type: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-2"
-            placeholder="Enter service type"
-            required
-          />
-          <button
-            type="submit"
-            disabled={loading || !newService.service_type.trim()}
-            className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? (
-              <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                Adding...
-              </>
-            ) : (
-              <>
-                <Plus className="h-4 w-4 mr-1" />
-                Add Service
-              </>
-            )}
-          </button>
-        </form>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -1093,6 +1130,13 @@ export default function VendorDetailPage() {
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
           <MessageSquare className="h-5 w-5 text-blue-600 mr-2" />
           Reviews ({reviews.length})
+          <button
+            onClick={() => setShowAddReview(true)}
+            className="ml-4 inline-flex items-center px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Add Review
+          </button>
         </h2>
         {showAddReview && (
           <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-6">
@@ -1113,30 +1157,54 @@ export default function VendorDetailPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-green-800 mb-2">Rating</label>
-                {renderStars(newReview.rating, true, (rating) =>
-                  setNewReview({ ...newReview, rating })
+                <label className="block text-sm font-medium text-green-800 mb-2">Communication Rating</label>
+                {renderStars(newReview.communication_rating, true, (rating) =>
+                  setNewReview({ ...newReview, communication_rating: rating })
                 )}
               </div>
               <div>
-                <label htmlFor="review_text" className="block text-sm font-medium text-green-800 mb-2">
-                  Review Text *
+                <label className="block text-sm font-medium text-green-800 mb-2">Experience Rating</label>
+                {renderStars(newReview.experience_rating, true, (rating) =>
+                  setNewReview({ ...newReview, experience_rating: rating })
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-green-800 mb-2">Quality Rating</label>
+                {renderStars(newReview.quality_rating, true, (rating) =>
+                  setNewReview({ ...newReview, quality_rating: rating })
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-green-800 mb-2">Overall Rating</label>
+                {renderStars(newReview.overall_rating, true, (rating) =>
+                  setNewReview({ ...newReview, overall_rating: rating })
+                )}
+              </div>
+              <div>
+                <label htmlFor="feedback" className="block text-sm font-medium text-green-800 mb-2">
+                  Feedback (Optional)
                 </label>
                 <textarea
-                  id="review_text"
+                  id="feedback"
                   rows={4}
-                  value={newReview.review_text}
-                  onChange={(e) => setNewReview({ ...newReview, review_text: e.target.value })}
+                  value={newReview.feedback}
+                  onChange={(e) => setNewReview({ ...newReview, feedback: e.target.value })}
                   className="w-full px-3 py-2 border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  placeholder="Enter review text..."
-                  required
+                  placeholder="Enter feedback (optional)..."
                 />
               </div>
               <div className="flex justify-end space-x-3">
                 <button
                   onClick={() => {
                     setShowAddReview(false);
-                    setNewReview({ rating: 5, review_text: '', couple_id: null });
+                    setNewReview({
+                      communication_rating: 5,
+                      experience_rating: 5,
+                      quality_rating: 5,
+                      overall_rating: 5,
+                      feedback: '',
+                      couple_id: null
+                    });
                   }}
                   className="px-4 py-2 border border-green-300 text-green-700 rounded-lg hover:bg-green-50 transition-colors"
                 >
@@ -1144,7 +1212,7 @@ export default function VendorDetailPage() {
                 </button>
                 <button
                   onClick={handleAddReview}
-                  disabled={addingReview || !newReview.review_text.trim() || !newReview.couple_id}
+                  disabled={addingReview || !newReview.couple_id}
                   className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {addingReview ? (
@@ -1163,7 +1231,7 @@ export default function VendorDetailPage() {
             </div>
           </div>
         )}
-        {reviews.length > 0 ? (
+        {reviews.length > 0 && (
           <div className="space-y-4">
             {reviews
               .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -1171,16 +1239,30 @@ export default function VendorDetailPage() {
                 <div key={review.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center space-x-3">
-                      {renderStars(review.rating)}
+                      {renderStars(review.overall_rating || 0)}
                       <span className="text-sm font-medium text-gray-900">
-                        {review.rating}/5.0
+                        {review.overall_rating || 0}/5.0
                       </span>
                     </div>
                     <span className="text-sm text-gray-500">
                       {new Date(review.created_at).toLocaleDateString()}
                     </span>
                   </div>
-                  <p className="text-gray-700 text-sm mb-3 whitespace-pre-wrap">{review.review_text}</p>
+                  {review.couples && review.couples.name && (
+                    <p className="text-gray-600 text-sm mb-1">Couple: {review.couples.name}</p>
+                  )}
+                  {review.communication_rating && (
+                    <p className="text-gray-600 text-sm mb-1">Communication: {review.communication_rating}/5</p>
+                  )}
+                  {review.experience_rating && (
+                    <p className="text-gray-600 text-sm mb-1">Experience: {review.experience_rating}/5</p>
+                  )}
+                  {review.quality_rating && (
+                    <p className="text-gray-600 text-sm mb-1">Quality: {review.quality_rating}/5</p>
+                  )}
+                  {review.feedback && (
+                    <p className="text-gray-700 text-sm mb-3 whitespace-pre-wrap">{review.feedback}</p>
+                  )}
                   {review.vendor_response && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-3">
                       <h5 className="text-xs font-medium text-blue-900 mb-1">Vendor Response:</h5>
@@ -1189,19 +1271,6 @@ export default function VendorDetailPage() {
                   )}
                 </div>
               ))}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h4 className="text-lg font-medium text-gray-900 mb-2">No reviews yet</h4>
-            <p className="text-gray-500">This vendor hasn't received any reviews yet.</p>
-            <button
-              onClick={() => setShowAddReview(true)}
-              className="mt-4 inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Add First Review
-            </button>
           </div>
         )}
       </div>

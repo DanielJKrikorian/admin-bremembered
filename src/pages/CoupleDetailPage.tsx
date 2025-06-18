@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Users, User, MapPin, Calendar, Package, CreditCard, MessageSquare, Clock, Check, XCircle, AlertCircle, Star, Edit, Phone, Save, Plus, Mail, Key, ChevronDown, ChevronUp, Search } from 'lucide-react';
+import { Dialog, Transition } from '@headlessui/react';
+import { Fragment } from 'react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
@@ -79,16 +81,6 @@ interface Payment {
   created_at: string;
 }
 
-interface VendorReview {
-  id: string;
-  couple_id: string;
-  vendor_id: string;
-  vendor_name: string | null;
-  rating: number;
-  review_text: string;
-  created_at: string;
-}
-
 export default function CoupleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -99,7 +91,6 @@ export default function CoupleDetailPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [servicePackages, setServicePackages] = useState<ServicePackage[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [reviews, setReviews] = useState<VendorReview[]>([]);
   const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState<Record<string, boolean>>({
@@ -135,9 +126,6 @@ export default function CoupleDetailPage() {
     venue_email: '',
     venue_contact_name: '',
   });
-  const [newReview, setNewReview] = useState({ rating: 5, review_text: '', vendor_id: null as string | null });
-  const [showAddReview, setShowAddReview] = useState(false);
-  const [addingReview, setAddingReview] = useState(false);
   const [showAllEvents, setShowAllEvents] = useState(false);
   const [expandedBooking, setExpandedBooking] = useState<string | null>(null);
   const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
@@ -155,7 +143,6 @@ export default function CoupleDetailPage() {
       setLoading(true);
       if (!id) throw new Error('Couple ID is undefined');
 
-      // Fetch couple details
       const { data: coupleData, error: coupleError } = await supabase
         .from('couples')
         .select(`
@@ -193,7 +180,6 @@ export default function CoupleDetailPage() {
         venue_contact_name: '',
       });
 
-      // Fetch email from users table
       if (coupleData.user_id) {
         const { data: userData, error: userError } = await supabase
           .from('users')
@@ -212,7 +198,6 @@ export default function CoupleDetailPage() {
         }
       }
 
-      // Fetch venue details
       if (coupleData.venue_id) {
         const { data: venueData, error: venueError } = await supabase
           .from('venues')
@@ -227,7 +212,6 @@ export default function CoupleDetailPage() {
         setVenue(venueData);
       }
 
-      // Fetch bookings with vendor, package, and venue details
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('bookings')
         .select(`
@@ -240,10 +224,8 @@ export default function CoupleDetailPage() {
       }
       console.log('Fetched bookings:', bookingsData);
 
-      // Fetch additional details for bookings
       let bookingsWithDetails: Booking[] = [];
       if (bookingsData && bookingsData.length > 0) {
-        // Fetch vendor details (name, phone, user_id for email lookup)
         const vendorIds = [...new Set(bookingsData.map(b => b.vendor_id).filter(id => id))];
         let vendorMap = new Map<string, { name: string; phone: string | null; user_id: string | null }>();
         if (vendorIds.length > 0) {
@@ -260,7 +242,6 @@ export default function CoupleDetailPage() {
           }
         }
 
-        // Fetch vendor emails from users table
         const vendorUserIds = [...new Set([...vendorMap.values()].map(v => v.user_id).filter(id => id))];
         let emailMap = new Map<string, string | null>();
         if (vendorUserIds.length > 0) {
@@ -277,7 +258,6 @@ export default function CoupleDetailPage() {
           }
         }
 
-        // Fetch service package details
         const packageIds = [...new Set(bookingsData.map(b => b.package_id).filter(id => id))];
         let packageMap = new Map<string, { name: string; description: string | null; price: number | null }>();
         if (packageIds.length > 0) {
@@ -294,7 +274,6 @@ export default function CoupleDetailPage() {
           }
         }
 
-        // Fetch venue details
         const venueIds = [...new Set(bookingsData.map(b => b.venue_id).filter(id => id))];
         let venueMap = new Map<string, { name: string; address: string | null }>();
         if (venueIds.length > 0) {
@@ -317,7 +296,6 @@ export default function CoupleDetailPage() {
           }
         }
 
-        // Combine all details
         bookingsWithDetails = bookingsData.map(b => ({
           id: b.id,
           couple_id: b.couple_id,
@@ -343,7 +321,6 @@ export default function CoupleDetailPage() {
       setBookings(bookingsWithDetails);
       console.log('Bookings with details:', bookingsWithDetails);
 
-      // Fetch service packages for display
       const packageIdsForDisplay = bookingsData?.map(b => b.package_id).filter(id => id) || [];
       if (packageIdsForDisplay.length > 0) {
         const { data: packagesData, error: packagesError } = await supabase
@@ -361,7 +338,6 @@ export default function CoupleDetailPage() {
         }
       }
 
-      // Fetch payments
       const bookingIds = bookingsData?.map(b => b.id) || [];
       if (bookingIds.length > 0) {
         const { data: paymentsData, error: paymentsError } = await supabase
@@ -376,7 +352,6 @@ export default function CoupleDetailPage() {
         setPayments(paymentsData || []);
       }
 
-      // Fetch events (all events for sorting)
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
         .select('id, couple_id, start_time, end_time, type, title, created_at')
@@ -388,25 +363,6 @@ export default function CoupleDetailPage() {
       }
       console.log('Fetched events:', eventsData);
       setEvents(eventsData || []);
-
-      // Fetch reviews with vendor names
-      const { data: reviewsData, error: reviewsError } = await supabase
-        .from('vendor_reviews')
-        .select(`
-          id, couple_id, vendor_id, rating, review_text, created_at,
-          vendors!vendor_reviews_vendor_id_fkey(name)
-        `)
-        .eq('couple_id', id);
-      if (reviewsError) {
-        console.error('Reviews fetch error:', reviewsError);
-        toast.warn('Failed to fetch reviews');
-      } else {
-        console.log('Fetched reviews:', reviewsData);
-        setReviews(reviewsData?.map(r => ({
-          ...r,
-          vendor_name: r.vendors?.name || null
-        })) || []);
-      }
     } catch (error: any) {
       console.error('Error fetching couple data:', error);
       toast.error('Failed to load couple data');
@@ -600,45 +556,6 @@ export default function CoupleDetailPage() {
     }
   };
 
-  const handleAddReview = async () => {
-    if (!couple || !newReview.review_text.trim() || !newReview.vendor_id) return;
-
-    setAddingReview(true);
-    try {
-      const { data, error } = await supabase
-        .from('vendor_reviews')
-        .insert({
-          couple_id: couple.id,
-          vendor_id: newReview.vendor_id,
-          rating: newReview.rating,
-          review_text: newReview.review_text.trim()
-        })
-        .select(`
-          id, couple_id, vendor_id, rating, review_text, created_at,
-          vendors!vendor_reviews_vendor_id_fkey(name)
-        `)
-        .single();
-
-      if (error) {
-        console.error('Review insert error:', error);
-        throw error;
-      }
-
-      setReviews(prev => [...prev, {
-        ...data,
-        vendor_name: data.vendors?.name || null
-      }]);
-      setNewReview({ rating: 5, review_text: '', vendor_id: null });
-      setShowAddReview(false);
-      toast.success('Review added successfully!');
-    } catch (error: any) {
-      console.error('Error adding review:', error);
-      toast.error('Failed to add review');
-    } finally {
-      setAddingReview(false);
-    }
-  };
-
   const handleResetPassword = async () => {
     if (!couple?.user_id || !coupleEmail || !isValidEmail(coupleEmail)) {
       toast.error('Invalid or missing email address for this couple.');
@@ -728,14 +645,12 @@ export default function CoupleDetailPage() {
     setExpandedPackage(expandedPackage === packageId ? null : packageId);
   };
 
-  // Filter upcoming events (after current date, limit to 5 unless showAllEvents is true)
-  const currentDate = new Date('2025-06-10T12:36:00-04:00'); // Current date: June 10, 2025, 12:36 PM EDT
+  const currentDate = new Date();
   const upcomingEvents = events
     .filter(event => new Date(event.start_time) > currentDate)
     .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
   const displayedEvents = showAllEvents ? upcomingEvents : upcomingEvents.slice(0, 5);
 
-  // Format currency (divide by 100 for cents to dollars, 2 decimal places)
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -1669,118 +1584,6 @@ export default function CoupleDetailPage() {
             <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h4 className="text-lg font-medium text-gray-900 mb-2">No payments</h4>
             <p className="text-gray-500">This couple hasn't made any payments yet.</p>
-          </div>
-        )}
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-          <MessageSquare className="h-5 w-5 text-blue-600 mr-2" />
-          Reviews ({reviews.length})
-        </h2>
-        {showAddReview && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-6">
-            <h4 className="text-md font-medium text-green-900 mb-4">Add New Review</h4>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-green-800 mb-2">Vendor</label>
-                <select
-                  value={newReview.vendor_id || ''}
-                  onChange={(e) => setNewReview({ ...newReview, vendor_id: e.target.value || null })}
-                  className="w-full px-3 py-2 border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  required
-                >
-                  <option value="">Select a vendor</option>
-                  {vendors.map(vendor => (
-                    <option key={vendor.id} value={vendor.id}>{vendor.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-green-800 mb-2">Rating</label>
-                {renderStars(newReview.rating, true, (rating) =>
-                  setNewReview({ ...newReview, rating })
-                )}
-              </div>
-              <div>
-                <label htmlFor="review_text" className="block text-sm font-medium text-green-800 mb-2">
-                  Review Text *
-                </label>
-                <textarea
-                  id="review_text"
-                  rows={4}
-                  value={newReview.review_text}
-                  onChange={(e) => setNewReview({ ...newReview, review_text: e.target.value })}
-                  className="w-full px-3 py-2 border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  placeholder="Enter review text..."
-                  required
-                />
-              </div>
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={() => {
-                    setShowAddReview(false);
-                    setNewReview({ rating: 5, review_text: '', vendor_id: null });
-                  }}
-                  className="px-4 py-2 border border-green-300 text-green-700 rounded-lg hover:bg-green-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAddReview}
-                  disabled={addingReview || !newReview.review_text.trim() || !newReview.vendor_id}
-                  className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {addingReview ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                      Adding...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Review
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {reviews.length > 0 ? (
-          <div className="space-y-4">
-            {reviews
-              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-              .map((review) => (
-                <div key={review.id} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center space-x-3">
-                      {renderStars(review.rating)}
-                      <span className="text-sm font-medium text-gray-900">
-                        {review.rating}/5.0
-                      </span>
-                    </div>
-                    <span className="text-sm text-gray-500">
-                      {new Date(review.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <p className="text-gray-700 text-sm mb-3 whitespace-pre-wrap">{review.review_text}</p>
-                  <p className="text-sm text-gray-600">Vendor: {review.vendor_name || 'Unknown'}</p>
-                </div>
-              ))}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h4 className="text-lg font-medium text-gray-900 mb-2">No reviews yet</h4>
-            <p className="text-gray-500">This couple hasn't written any reviews yet.</p>
-            <button
-              onClick={() => setShowAddReview(true)}
-              className="mt-4 inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Add First Review
-            </button>
           </div>
         )}
       </div>

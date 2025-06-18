@@ -1,4 +1,3 @@
-// src/pages/VendorsPage.tsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, Plus, Upload, Eye, Phone, CreditCard, Star, Edit } from 'lucide-react';
@@ -29,9 +28,9 @@ export function VendorsPage() {
       const { data: vendorsData, error: vendorsError } = await supabase
         .from('vendors')
         .select(`
-          id, user_id, name, phone, years_experience, service_areas, specialties, stripe_account_id, created_at, updated_at,
+          id, user_id, name, phone, years_experience, service_areas, specialties, stripe_account_id, created_at, updated_at, rating,
           vendor_services (id, vendor_id, service_type, is_active),
-          vendor_reviews (id, vendor_id, rating),
+          vendor_reviews (id, vendor_id),
           vendor_service_packages (id, vendor_id, status)
         `)
         .order('created_at', { ascending: false });
@@ -189,14 +188,12 @@ export function VendorsPage() {
                   const pendingPackages = servicePackages.filter(pkg => pkg.status === 'pending').length;
                   const approvedPackages = servicePackages.filter(pkg => pkg.status === 'approved').length;
                   const reviews = vendor.vendor_reviews || [];
-                  const averageRating = reviews.length > 0
-                    ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
-                    : null;
 
                   return (
                     <tr
                       key={vendor.id}
                       className="hover:bg-gray-50 cursor-pointer transition-colors"
+                      onClick={() => navigate(`/dashboard/vendor/${vendor.id}`)}
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
@@ -268,8 +265,12 @@ export function VendorsPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {reviews.length > 0 ? (
                           <div className="flex items-center space-x-1">
-                            <Star className="h-4 w-4 text-yellow-400 fill-current" />
-                            <span>{averageRating?.toFixed(1)}</span>
+                            {vendor.rating !== null && vendor.rating !== undefined && (
+                              <>
+                                <span className="mr-1">{vendor.rating.toFixed(2)}</span>
+                                {renderStars(vendor.rating)}
+                              </>
+                            )}
                             <span className="text-gray-500">({reviews.length})</span>
                           </div>
                         ) : (
@@ -313,6 +314,30 @@ export function VendorsPage() {
       </div>
       <ImportVendorsModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
       <AddVendorModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} />
+    </div>
+  );
+}
+
+// Simple email validation
+function isValidEmail(email: string) {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+}
+
+// Render stars with partial fill
+function renderStars(rating: number) {
+  return (
+    <div className="flex items-center space-x-1">
+      {[1, 2, 3, 4, 5].map((star) => {
+        const fillLevel = Math.min(1, Math.max(0, rating - (star - 1)));
+        return (
+          <Star
+            key={star}
+            className={`h-4 w-4 ${fillLevel > 0 ? 'text-yellow-400 fill-current' : 'text-gray-300'}`}
+            style={{ clipPath: `inset(0 ${100 - fillLevel * 100}% 0 0)` }}
+          />
+        );
+      })}
     </div>
   );
 }

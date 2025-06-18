@@ -11,13 +11,13 @@ interface ImportCouplesModalProps {
   onSuccess?: () => void; // Optional, matching AddCoupleModal
 }
 
-const csvTemplate = `name,email,phone,partner1_name,partner2_name,wedding_date,budget,vibe_tags,venue_name,guest_count,venue_city,venue_state
-"Smith & Johnson",couple@example.com,"(555) 123-4567",Alex,Taylor,2025-12-01,50000,"rustic,boho","Willow Creek Vineyard",150,Napa,CA`;
+const csvTemplate = `name,email,phone,partner1_name,partner2_name,wedding_date,budget,vibe_tags,venue_name,venue_street_address,venue_city,venue_state,venue_zip,guest_count
+"Smith & Johnson",couple@example.com,"(555) 123-4567",Alex,Taylor,2025-12-01,50000,"rustic,boho","Willow Creek Vineyard","123 Vine St","Napa","CA","94558",150`;
 
 export default function ImportCouplesModal({ isOpen, onClose, onSuccess }: ImportCouplesModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
-  const [importedCouples, setImportedCouples] = useState<{ name: string; status: string; email?: string }[]>([]);
+  const [importedCouples, setImportedCouples] = useState<{ name: string; status: string; email?: string; venue_id?: string }[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [success, setSuccess] = useState(false);
 
@@ -79,7 +79,7 @@ export default function ImportCouplesModal({ isOpen, onClose, onSuccess }: Impor
       for (let i = 0; i < rows.length; i++) {
         // Handle CSV parsing with potential commas in fields (e.g., vibe_tags)
         const rowValues = rows[i].split(/(?=(?:[^"]*"[^"]*")*[^"]*$),/).map(val => val.replace(/^"|"$/g, '').trim());
-        const [name, email, phone, partner1_name, partner2_name, wedding_date, budget, vibe_tags, venue_name, guest_count, venue_city, venue_state] = rowValues;
+        const [name, email, phone, partner1_name, partner2_name, wedding_date, budget, vibe_tags, venue_name, venue_street_address, venue_city, venue_state, venue_zip, guest_count] = rowValues;
         const progressPercent = Math.round(((i + 1) / total) * 100);
         setProgress(progressPercent);
 
@@ -99,19 +99,42 @@ export default function ImportCouplesModal({ isOpen, onClose, onSuccess }: Impor
             venue_state: venue_state?.trim(),
           };
 
+          // Search for matching venue
+          let venue_id: string | null = null;
+          if (venue_street_address || venue_city || venue_state || venue_zip || venue_name) {
+            const { data: venues, error: venueError } = await supabase
+              .from('venues')
+              .select('id')
+              .or(
+                `street_address.ilike.%${venue_street_address || ''}%,city.ilike.%${venue_city || ''}%,state.ilike.%${venue_state || ''}%,zip.ilike.%${venue_zip || ''}%,name.ilike.%${venue_name || ''}%`
+              )
+              .limit(1);
+            if (venueError) {
+              console.error('Venue search error:', venueError);
+            } else if (venues && venues.length > 0) {
+              venue_id = venues[0].id;
+              console.log(`Matched venue with ID: ${venue_id} for ${venue_street_address || venue_name}`);
+            } else {
+              console.warn(`No venue found for ${venue_street_address || venue_name}, ${venue_city}, ${venue_state}, ${venue_zip}`);
+            }
+          }
+
+          // Add venue_id to payload if found
+          const finalPayload = { ...payload, venue_id, venue_street_address: venue_street_address?.trim() || null, venue_zip: venue_zip?.trim() || null };
+
           const response = await fetch('https://eecbrvehrhrvdzuutliq.supabase.co/functions/v1/create-couple', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify(finalPayload),
           });
 
           const result = await response.json();
           if (!response.ok) throw new Error(result.error || 'Failed to create couple via function');
 
-          setImportedCouples(prev => [...prev, { name, status: 'Success', email }]);
+          setImportedCouples(prev => [...prev, { name, status: 'Success', email, venue_id }]);
         } catch (error: any) {
           console.error('Import error:', error);
           setImportedCouples(prev => [...prev, { name, status: 'Failed', email }]);
@@ -201,6 +224,9 @@ export default function ImportCouplesModal({ isOpen, onClose, onSuccess }: Impor
                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                               Email
                             </th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                              Venue ID
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
@@ -215,6 +241,7 @@ export default function ImportCouplesModal({ isOpen, onClose, onSuccess }: Impor
                                 )}
                               </td>
                               <td className="px-4 py-2 whitespace-nowrap">{couple.email}</td>
+                              <td className="px-4 py-2 whitespace-nowrap">{couple.venue_id || 'N/A'}</td>
                             </tr>
                           ))}
                         </tbody>

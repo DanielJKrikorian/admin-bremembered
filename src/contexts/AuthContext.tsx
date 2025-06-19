@@ -41,7 +41,7 @@ const ADMIN_LEVELS = {
 type AdminLevel = keyof typeof ADMIN_LEVELS
 
 // Timeout wrapper for database queries (but not for auth operations)
-const withTimeout = <T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> => {
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number = 10000): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) => 

@@ -16,7 +16,8 @@ interface Booking {
   status: string;
   amount: number;
   service_type: string;
-  created_at: string;
+  event_start_datetime: string; // Combined date and time in EST
+  event_id: string; // To store event_id for lookup
 }
 
 interface Event {
@@ -54,7 +55,7 @@ export default function BookingAndEventsPage() {
         supabase
           .from('bookings')
           .select(`
-            id, couple_id, vendor_id, status, amount, service_type, created_at,
+            id, couple_id, vendor_id, status, amount, service_type, event_id,
             couples!bookings_couple_id_fkey(name),
             vendors!bookings_vendor_id_fkey(name)
           `),
@@ -65,16 +66,43 @@ export default function BookingAndEventsPage() {
             couples!events_couple_id_fkey(name),
             vendors!events_vendor_id_fkey(name)
           `)
+          .order('start_time', { ascending: true })
       ]);
 
       if (bookingsData.error) throw bookingsData.error;
       if (eventsData.error) throw eventsData.error;
 
-      setBookings(bookingsData.data.map(b => ({
-        ...b,
-        couple_name: b.couples?.name || 'Unknown',
-        vendor_name: b.vendors?.name || 'Unknown'
-      })) || []);
+      // Fetch event start times for bookings
+      const bookingsWithEvents = await Promise.all(bookingsData.data.map(async (b) => {
+        if (b.event_id) {
+          const { data: eventData, error: eventError } = await supabase
+            .from('events')
+            .select('start_time')
+            .eq('id', b.event_id)
+            .single();
+          if (eventError) throw eventError;
+          const startTimeUTC = eventData?.start_time;
+          const startTimeEST = startTimeUTC
+            ? new Date(new Date(startTimeUTC).toLocaleString('en-US', { timeZone: 'America/New_York' })).toLocaleString()
+            : null;
+          return {
+            ...b,
+            couple_name: b.couples?.name || 'Unknown',
+            vendor_name: b.vendors?.name || 'Unknown',
+            event_start_datetime: startTimeEST || 'N/A',
+            event_id: b.event_id
+          };
+        }
+        return {
+          ...b,
+          couple_name: b.couples?.name || 'Unknown',
+          vendor_name: b.vendors?.name || 'Unknown',
+          event_start_datetime: 'N/A',
+          event_id: b.event_id
+        };
+      }));
+
+      setBookings(bookingsWithEvents || []);
       setEvents(eventsData.data.map(e => ({
         ...e,
         couple_name: e.couples?.name || 'Unknown',
@@ -115,17 +143,34 @@ export default function BookingAndEventsPage() {
 
     const filterBookingsByPeriod = (year: number, month: number) => {
       return bookings.filter(b => {
-        const bookingDate = new Date(b.created_at);
-        return bookingDate.getFullYear() === year && bookingDate.getMonth() === month;
+        const eventDate = b.event_start_datetime && b.event_start_datetime !== 'N/A'
+          ? new Date(b.event_start_datetime)
+          : new Date(0); // Fallback to epoch if no event date
+        return eventDate.getFullYear() === year && eventDate.getMonth() === month;
       });
     };
 
     const lastMonthBookings = filterBookingsByPeriod(lastYear, lastMonth);
     const thisMonthBookings = filterBookingsByPeriod(currentYear, currentMonth);
     const upcomingMonthBookings = filterBookingsByPeriod(nextYear, nextMonth);
-    const thisYearBookings = bookings.filter(b => new Date(b.created_at).getFullYear() === currentYear);
-    const nextYearBookings = bookings.filter(b => new Date(b.created_at).getFullYear() === nextYear + 1);
-    const lastYearBookings = bookings.filter(b => new Date(b.created_at).getFullYear() === lastYear - 1);
+    const thisYearBookings = bookings.filter(b => {
+      const eventDate = b.event_start_datetime && b.event_start_datetime !== 'N/A'
+        ? new Date(b.event_start_datetime)
+        : new Date(0);
+      return eventDate.getFullYear() === currentYear;
+    });
+    const nextYearBookings = bookings.filter(b => {
+      const eventDate = b.event_start_datetime && b.event_start_datetime !== 'N/A'
+        ? new Date(b.event_start_datetime)
+        : new Date(0);
+      return eventDate.getFullYear() === nextYear + 1;
+    });
+    const lastYearBookings = bookings.filter(b => {
+      const eventDate = b.event_start_datetime && b.event_start_datetime !== 'N/A'
+        ? new Date(b.event_start_datetime)
+        : new Date(0);
+      return eventDate.getFullYear() === lastYear - 1;
+    });
 
     const getTotalAmount = (bookingsList: Booking[]) => {
       return bookingsList.reduce((sum, b) => sum + (b.amount || 0) / 100, 0);
@@ -266,7 +311,7 @@ export default function BookingAndEventsPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Service Type</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Event Date & Time</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -282,7 +327,9 @@ export default function BookingAndEventsPage() {
                     <td className="px-6 py-4 whitespace-nowrap">{booking.service_type}</td>
                     <td className="px-6 py-4 whitespace-nowrap">{booking.status}</td>
                     <td className="px-6 py-4 whitespace-nowrap">${(booking.amount / 100).toFixed(2)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">{new Date(booking.created_at).toLocaleDateString()}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {booking.event_start_datetime}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
                         onClick={(e) => { e.stopPropagation(); navigate(`/dashboard/booking/${booking.id}`); }}

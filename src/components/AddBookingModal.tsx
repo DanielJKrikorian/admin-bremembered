@@ -71,6 +71,7 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
   const [searchVenue, setSearchVenue] = useState('');
   const [isAddVenueOpen, setIsAddVenueOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   useEffect(() => {
     fetchOptions();
@@ -111,8 +112,7 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
         ...prev,
         package_id: packageId,
         service_type: selectedPackage.service_type,
-        amount: (selectedPackage.price / 100).toString(),
-        event_type: selectedPackage.service_type // Set event_type to match service_type initially
+        amount: (selectedPackage.price / 100).toString()
       }));
     }
   };
@@ -137,6 +137,8 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitAttempted || loading) return;
+    setSubmitAttempted(true);
     setLoading(true);
 
     try {
@@ -154,10 +156,33 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
         p_event_type: formData.event_type || 'wedding',
         p_package_id: formData.package_id || null,
         p_venue_id: formData.venue_id || null,
-        p_start_time: new Date(formData.start_time).toISOString(),
-        p_end_time: new Date(formData.end_time).toISOString()
+        p_event_id: null,
       });
-      const { data, error } = await supabase.rpc('create_booking_and_event', {
+
+      // Create the event
+      const { data: eventData, error: eventError } = await supabase
+        .from('events')
+        .insert({
+          couple_id: formData.couple_id,
+          vendor_id: formData.vendor_id,
+          start_time: new Date(formData.start_time).toISOString(),
+          end_time: new Date(formData.end_time).toISOString(),
+          type: formData.event_type,
+          title: `${formData.service_type} Event`,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          is_blocked_time: true
+        })
+        .select('id')
+        .single();
+
+      if (eventError) throw eventError;
+      if (!eventData) throw new Error('Failed to create event');
+
+      const eventId = eventData.id;
+
+      // Create the booking
+      const { data: bookingData, error: bookingError } = await supabase.rpc('create_booking', {
         p_couple_id: formData.couple_id,
         p_vendor_id: formData.vendor_id,
         p_status: formData.status,
@@ -166,16 +191,16 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
         p_event_type: formData.event_type || 'wedding',
         p_package_id: formData.package_id || null,
         p_venue_id: formData.venue_id || null,
-        p_start_time: new Date(formData.start_time).toISOString(),
-        p_end_time: new Date(formData.end_time).toISOString()
+        p_event_id: eventId
       });
 
-      if (error) {
-        console.error('RPC Error:', error);
-        throw error;
+      if (bookingError) {
+        // Roll back the event if booking fails
+        await supabase.from('events').delete().eq('id', eventId);
+        throw bookingError;
       }
 
-      console.log('Booking and event created:', data);
+      console.log('Booking and event created:', bookingData);
       toast.success('Booking and event added successfully!');
       onSuccess();
       onClose();
@@ -184,6 +209,7 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
       toast.error(error.message || 'Failed to add booking and event');
     } finally {
       setLoading(false);
+      setSubmitAttempted(false);
     }
   };
 
@@ -430,7 +456,6 @@ export default function AddBookingModal({ isOpen, onClose, onSuccess }: AddBooki
             </Transition.Child>
           </div>
         </div>
-        <AddVenueModal isOpen={isAddVenueOpen} onClose={() => setIsAddVenueOpen(false)} onVenueAdded={handleVenueAdded} />
       </Dialog>
     </Transition>
   );

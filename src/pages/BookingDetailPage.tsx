@@ -280,21 +280,23 @@ export default function BookingDetailPage() {
   };
 
   const sendFeedbackEmail = async () => {
-    if (!booking?.couple_email) {
-      toast.error('No couple email available');
+    if (!booking?.couple_id) {
+      toast.error('No couple ID available');
       return;
     }
 
     try {
-      const { error } = await supabase.functions.invoke('send-followup-email', {
-        body: { couple_id: booking.couple_id, booking_id: booking.id, delay_hours: 0 },
-      });
+      const { error } = await supabase
+        .from('review_trigger')
+        .insert({ couple_id: booking.couple_id, send_request: true });
+
       if (error) throw error;
-      toast.success('Feedback email sent successfully');
+
+      toast.success('Feedback request recorded successfully');
       fetchBooking(); // Refresh email logs and upcoming reminders
     } catch (error: any) {
-      console.error('Error sending feedback email:', error);
-      toast.error('Failed to send feedback email');
+      console.error('Error recording feedback request:', error);
+      toast.error('Failed to record feedback request');
     }
   };
 
@@ -345,7 +347,7 @@ export default function BookingDetailPage() {
           <div>
             <label className="text-sm font-medium text-gray-500">Vendor</label>
             <p className="text-sm text-gray-900">{booking.vendor_name}</p>
-            <p className="text-sm text-gray-600">{booking.vendor_email || 'No email'}</p> {/* Restored vendor email display */}
+            <p className="text-sm text-gray-600">{booking.vendor_email || 'No email'}</p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-500">Vendor Phone</label>
@@ -609,6 +611,10 @@ export default function BookingDetailPage() {
             <p className="text-gray-500">No emails or texts have been sent for this booking yet.</p>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
       </div>
     </div>
   );

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Building2, User, Calendar, MapPin, MessageSquare, Package, CreditCard, Check, Clock, AlertCircle, XCircle, Star, Edit, Phone, Save, Plus, Mail, Key } from 'lucide-react';
+import { Building2, User, Calendar, MapPin, MessageSquare, Package, CreditCard, Check, Clock, AlertCircle, XCircle, Star, Edit, Phone, Save, Plus, Mail, Key, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { Vendor, VendorService, ServicePackage, VendorServicePackage, VendorReview } from '../types/types';
+import Select from 'react-select';
 
 export default function VendorDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -19,8 +20,7 @@ export default function VendorDetailPage() {
     phone: false,
     stripe: false,
     profile: false,
-    serviceAreas: false,
-    specialties: false
+    specialties: false,
   });
   const [newService, setNewService] = useState<VendorService>({
     id: '',
@@ -29,7 +29,7 @@ export default function VendorDetailPage() {
     is_active: true,
     package_status: 'pending',
     created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    updated_at: new Date().toISOString(),
   });
   const [newServicePackage, setNewServicePackage] = useState<VendorServicePackage>({
     id: '',
@@ -38,7 +38,7 @@ export default function VendorDetailPage() {
     service_type: '',
     status: 'pending',
     created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    updated_at: new Date().toISOString(),
   });
   const [newReview, setNewReview] = useState({
     communication_rating: 5,
@@ -46,7 +46,7 @@ export default function VendorDetailPage() {
     quality_rating: 5,
     overall_rating: 5,
     feedback: '',
-    couple_id: null as string | null
+    couple_id: null as string | null,
   });
   const [couples, setCouples] = useState<{ id: string; name: string }[]>([]);
   const [formData, setFormData] = useState({
@@ -54,16 +54,22 @@ export default function VendorDetailPage() {
     phone: '',
     stripe_account_id: '',
     profile: '',
-    service_areas: '',
-    specialties: ''
+    specialties: '',
   });
   const [addingReview, setAddingReview] = useState(false);
   const [showAddReview, setShowAddReview] = useState(false);
+  const [serviceAreaOptions, setServiceAreaOptions] = useState<{ id: string; state: string; region: string | null }[]>([]);
+  const [selectedStates, setSelectedStates] = useState<{ value: string; label: string }[]>([]);
+  const [selectedRegions, setSelectedRegions] = useState<{ value: string; label: string }[]>([]);
+  const [stagedServiceAreas, setStagedServiceAreas] = useState<{ state: string; region: string | null }[]>([]);
+  const [vendorServiceAreas, setVendorServiceAreas] = useState<{ id: string; state: string; region: string | null }[]>([]);
 
   useEffect(() => {
     fetchVendor();
     fetchCouples();
     fetchAvailableServicePackages();
+    fetchServiceAreaOptions();
+    fetchVendorServiceAreas();
   }, [id]);
 
   const fetchVendor = async () => {
@@ -89,6 +95,9 @@ export default function VendorDetailPage() {
             service_packages (
               id, service_type, name, description, price, features, coverage, hour_amount, event_type, status, created_at, updated_at
             )
+          ),
+          vendor_service_areas (
+            id, vendor_id, state, region
           )
         `)
         .eq('id', id)
@@ -101,13 +110,13 @@ export default function VendorDetailPage() {
         phone: data.phone || '',
         stripe_account_id: data.stripe_account_id || '',
         profile: data.profile || '',
-        service_areas: data.service_areas?.join(', ') || '',
-        specialties: data.specialties?.join(', ') || ''
+        specialties: data.specialties?.join(', ') || '',
       });
+      setVendorServiceAreas(data.vendor_service_areas || []);
 
       // Fetch email from users table using user_id
       if (data.user_id) {
-        console.log('Looking up user with id:', data.user_id); // Debug log
+        console.log('Looking up user with id:', data.user_id);
         const { data: userData, error: userError } = await supabase
           .from('users')
           .select('email')
@@ -120,8 +129,8 @@ export default function VendorDetailPage() {
             throw userError;
           }
         } else if (userData && userData.length > 0) {
-          setVendorEmail(userData[0].email || null); // Use first result if multiple rows
-          console.log('Fetched email:', userData[0].email); // Debug log
+          setVendorEmail(userData[0].email || null);
+          console.log('Fetched email:', userData[0].email);
         } else {
           console.warn('No user data returned for user_id:', data.user_id);
           toast.error(`No email found for user_id: ${data.user_id}.`);
@@ -163,6 +172,89 @@ export default function VendorDetailPage() {
     }
   };
 
+  const fetchServiceAreaOptions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('service_areas')
+        .select('id, state, region')
+        .order('state', { ascending: true })
+        .order('region', { ascending: true, nullsFirst: false });
+      if (error) throw error;
+      setServiceAreaOptions(data || []);
+    } catch (error) {
+      console.error('Error fetching service area options:', error);
+      toast.error('Failed to load service area options');
+    }
+  };
+
+  const fetchVendorServiceAreas = async () => {
+    if (!id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('vendor_service_areas')
+        .select('id, vendor_id, state, region')
+        .eq('vendor_id', id);
+      if (error) throw error;
+      console.log('Fetched vendor service areas:', { vendor_id: id, data });
+      setVendorServiceAreas(data || []);
+      const states = data
+        ?.filter((area) => !area.region)
+        .map((area) => ({ value: area.state, label: area.state })) || [];
+      const regions = data
+        ?.filter((area) => area.region)
+        .map((area) => ({ value: `${area.state} - ${area.region}`, label: area.region })) || [];
+      setSelectedStates(states);
+      setSelectedRegions(regions);
+    } catch (error) {
+      console.error('Error fetching vendor service areas:', error);
+      toast.error('Failed to load vendor service areas');
+    }
+  };
+
+  const addServiceAreas = async () => {
+    if (!vendor || !stagedServiceAreas.length) return;
+
+    try {
+      const inserts = stagedServiceAreas.map(({ state, region }) => ({
+        vendor_id: vendor.id,
+        state,
+        region,
+      }));
+      console.log('Inserting service areas:', { vendor_id: vendor.id, inserts });
+      const { error } = await supabase
+        .from('vendor_service_areas')
+        .insert(inserts);
+      if (error) {
+        console.error('Insert error details:', { vendor_id: vendor.id, error });
+        throw error;
+      }
+      setStagedServiceAreas([]);
+      await fetchVendorServiceAreas();
+      toast.success('Service areas added successfully');
+    } catch (error: any) {
+      console.error('Error adding service areas:', error);
+      toast.error(`Failed to add service areas: ${error.message}`);
+    }
+  };
+
+  const removeServiceArea = async (serviceAreaId: string) => {
+    if (!window.confirm('Are you sure you want to remove this service area?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('vendor_service_areas')
+        .delete()
+        .eq('id', serviceAreaId);
+      if (error) throw error;
+      await fetchVendorServiceAreas();
+      toast.success('Service area removed successfully');
+    } catch (error) {
+      console.error('Error removing service area:', error);
+      toast.error('Failed to remove service area');
+    }
+  };
+
   const handleSaveField = async (field: string) => {
     if (!vendor) return;
 
@@ -182,11 +274,6 @@ export default function VendorDetailPage() {
         case 'profile':
           updateData.profile = formData.profile.trim() || null;
           break;
-        case 'serviceAreas':
-          updateData.service_areas = formData.service_areas
-            ? formData.service_areas.split(',').map(area => area.trim()).filter(area => area.length > 0)
-            : [];
-          break;
         case 'specialties':
           updateData.specialties = formData.specialties
             ? formData.specialties.split(',').map(specialty => specialty.trim()).filter(specialty => specialty.length > 0)
@@ -196,7 +283,7 @@ export default function VendorDetailPage() {
           return;
       }
 
-      console.log('Updating vendor with id:', vendor.id, 'Data:', updateData); // Debug log
+      console.log('Updating vendor with id:', vendor.id, 'Data:', updateData);
       const { data, error } = await supabase
         .from('vendors')
         .update(updateData)
@@ -237,7 +324,7 @@ export default function VendorDetailPage() {
         .insert({
           ...newService,
           vendor_id: vendor.id,
-          id: crypto.randomUUID()
+          id: crypto.randomUUID(),
         })
         .select();
 
@@ -245,7 +332,7 @@ export default function VendorDetailPage() {
 
       setVendor(prev => prev ? {
         ...prev,
-        vendor_services: [...(prev.vendor_services || []), data[0]]
+        vendor_services: [...(prev.vendor_services || []), data[0]],
       } : null);
       setNewService({
         id: '',
@@ -254,7 +341,7 @@ export default function VendorDetailPage() {
         is_active: true,
         package_status: 'pending',
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       });
       toast.success('Service added successfully!');
     } catch (error: any) {
@@ -271,13 +358,13 @@ export default function VendorDetailPage() {
 
     setLoading(true);
     try {
-      console.log('Inserting service package:', newServicePackage); // Debug log
+      console.log('Inserting service package:', newServicePackage);
       const { data, error } = await supabase
         .from('vendor_service_packages')
         .insert({
           ...newServicePackage,
           vendor_id: vendor.id,
-          id: crypto.randomUUID()
+          id: crypto.randomUUID(),
         })
         .select(`
           id, vendor_id, service_package_id, service_type, status, created_at, updated_at,
@@ -294,7 +381,7 @@ export default function VendorDetailPage() {
       if (data && data.length > 0) {
         setVendor(prev => prev ? {
           ...prev,
-          vendor_service_packages: [...(prev.vendor_service_packages || []), data[0]]
+          vendor_service_packages: [...(prev.vendor_service_packages || []), data[0]],
         } : null);
         setNewServicePackage({
           id: '',
@@ -303,7 +390,7 @@ export default function VendorDetailPage() {
           service_type: '',
           status: 'pending',
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
         });
         toast.success('Service package added successfully!');
       } else {
@@ -330,8 +417,8 @@ export default function VendorDetailPage() {
         experience_rating: newReview.experience_rating,
         quality_rating: newReview.quality_rating,
         overall_rating: newReview.overall_rating,
-        feedback: newReview.feedback.trim() || null
-      }); // Debug payload
+        feedback: newReview.feedback.trim() || null,
+      });
       const { data, error, status } = await supabase
         .from('vendor_reviews')
         .insert({
@@ -341,22 +428,21 @@ export default function VendorDetailPage() {
           experience_rating: newReview.experience_rating,
           quality_rating: newReview.quality_rating,
           overall_rating: newReview.overall_rating,
-          feedback: newReview.feedback.trim() || null
+          feedback: newReview.feedback.trim() || null,
         })
-        .select(); // Ensure the inserted row is returned
+        .select();
 
-      console.log('Insert response:', { data, error, status }); // Debug response
+      console.log('Insert response:', { data, error, status });
       if (error) throw error;
 
-      // Check if data is valid before accessing [0]
       if (data && data.length > 0) {
         setVendor(prev => prev ? {
           ...prev,
-          vendor_reviews: [...(prev.vendor_reviews || []), data[0]]
+          vendor_reviews: [...(prev.vendor_reviews || []), data[0]],
         } : null);
       } else {
         console.warn('No data returned from insert, refreshing vendor data');
-        fetchVendor(); // Fallback to refresh vendor data
+        fetchVendor();
       }
 
       setNewReview({
@@ -365,9 +451,8 @@ export default function VendorDetailPage() {
         quality_rating: 5,
         overall_rating: 5,
         feedback: '',
-        couple_id: null
+        couple_id: null,
       });
-      // Do not close the form, allow adding another review
       toast.success('Review added successfully!');
     } catch (error: any) {
       console.error('Error adding review:', error);
@@ -425,7 +510,7 @@ export default function VendorDetailPage() {
         ...prev,
         vendor_service_packages: prev.vendor_service_packages?.map(pkg =>
           pkg.id === packageId ? { ...pkg, status: newStatus } : pkg
-        )
+        ),
       }) : null);
       toast.success(`Package status updated to ${newStatus}`);
     } catch (error: any) {
@@ -443,7 +528,7 @@ export default function VendorDetailPage() {
         .from('vendor_services')
         .update({
           is_active: true,
-          package_status: 'approved'
+          package_status: 'approved',
         })
         .eq('id', serviceId)
         .select();
@@ -454,7 +539,7 @@ export default function VendorDetailPage() {
         ...prev,
         vendor_services: prev.vendor_services?.map(service =>
           service.id === serviceId ? { ...service, is_active: true, package_status: 'approved' } : service
-        )
+        ),
       } : null);
       toast.success('Service activated successfully!');
     } catch (error: any) {
@@ -524,6 +609,46 @@ export default function VendorDetailPage() {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
   };
+
+  const stateOptions = [...new Set(serviceAreaOptions.map((option) => option.state))]
+    .map((state) => ({ value: state, label: state }));
+  const regionOptions = serviceAreaOptions
+    .filter((option) => option.region && selectedStates.map((s) => s.value).includes(option.state))
+    .map((option) => ({ value: `${option.state} - ${option.region}`, label: option.region! }));
+
+  const handleAddServiceAreas = () => {
+    const newAreas = selectedRegions.length
+      ? selectedRegions.map((r) => {
+          const [state, region] = r.value.split(' - ');
+          return { state, region };
+        })
+      : selectedStates.map((s) => ({ state: s.value, region: null }));
+
+    const uniqueAreas = newAreas.filter(
+      (newArea) =>
+        !vendorServiceAreas.some(
+          (area) =>
+            area.state === newArea.state &&
+            area.region === newArea.region
+        )
+    );
+
+    setStagedServiceAreas(uniqueAreas);
+    addServiceAreas();
+  };
+
+  // Group service areas by state for display
+  const groupedServiceAreas = vendorServiceAreas.reduce((acc, area) => {
+    if (!acc[area.state]) {
+      acc[area.state] = { state: area.state, regions: [] };
+    }
+    if (area.region) {
+      acc[area.state].regions.push({ id: area.id, region: area.region });
+    } else {
+      acc[area.state].id = area.id;
+    }
+    return acc;
+  }, {} as Record<string, { id?: string; state: string; regions: { id: string; region: string }[] }>);
 
   if (loading) {
     return (
@@ -779,56 +904,128 @@ export default function VendorDetailPage() {
         )}
       </div>
 
-      {vendor.service_areas && vendor.service_areas.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
-            <MapPin className="h-5 w-5 text-blue-600 mr-2" />
-            Service Areas
-          </h2>
-          {editMode.serviceAreas ? (
-            <div>
-              <input
-                type="text"
-                value={formData.service_areas}
-                onChange={(e) => setFormData({ ...formData, service_areas: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Enter service areas (comma-separated)"
-              />
-              <button
-                onClick={() => handleSaveField('serviceAreas')}
-                className="mt-2 inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
-              >
-                <Save className="h-4 w-4 mr-1" />
-                Save
-              </button>
-              <button
-                onClick={() => setEditMode(prev => ({ ...prev, serviceAreas: false }))}
-                className="mt-2 ml-2 inline-flex items-center px-3 py-1 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {vendor.service_areas.map((area, index) => (
-                <span
-                  key={index}
-                  className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"
-                >
-                  {area}
-                </span>
-              ))}
-              <button
-                onClick={() => setEditMode(prev => ({ ...prev, serviceAreas: true }))}
-                className="mt-2 inline-flex items-center px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
-              >
-                <Edit className="h-4 w-4 mr-1" />
-                Edit
-              </button>
-            </div>
-          )}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center">
+          <MapPin className="h-5 w-5 text-blue-600 mr-2" />
+          Service Areas
+        </h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">
+              States
+            </label>
+            <Select
+              isMulti
+              options={stateOptions}
+              value={selectedStates}
+              onChange={(selected) => {
+                setSelectedStates(selected);
+                setSelectedRegions(
+                  selectedRegions.filter((r) =>
+                    selected.some((s) => r.value.startsWith(`${s.value} - `))
+                  )
+                );
+                setStagedServiceAreas(
+                  selected.map((s) => ({ state: s.value, region: null }))
+                );
+              }}
+              className="basic-multi-select"
+              classNamePrefix="select"
+              placeholder="Select states..."
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-1">
+              Regions
+            </label>
+            <Select
+              isMulti
+              options={regionOptions}
+              value={selectedRegions}
+              onChange={(selected) => {
+                setSelectedRegions(selected);
+                setStagedServiceAreas(
+                  selected.map((r) => {
+                    const [state, region] = r.value.split(' - ');
+                    return { state, region };
+                  })
+                );
+              }}
+              className="basic-multi-select"
+              classNamePrefix="select"
+              placeholder="Select regions..."
+              isDisabled={!selectedStates.length}
+            />
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={handleAddServiceAreas}
+              disabled={!stagedServiceAreas.length || loading}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            >
+              <Plus className="h-5 w-5 mr-2" />
+              Add Service Areas
+            </button>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-2">
+              Vendor Service Areas
+            </label>
+            {Object.keys(groupedServiceAreas).length > 0 ? (
+              <div className="space-y-3">
+                {Object.values(groupedServiceAreas)
+                  .sort((a, b) => a.state.localeCompare(b.state))
+                  .map((group) => (
+                    <div key={group.state} className="bg-gray-50 p-3 rounded-md">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-2">{group.state}</h4>
+                      <ul className="space-y-2">
+                        {group.id && (
+                          <li className="flex items-center justify-between bg-gray-100 p-2 rounded-md">
+                            <span className="text-sm text-gray-600">Entire State</span>
+                            <button
+                              type="button"
+                              onClick={() => removeServiceArea(group.id!)}
+                              className="p-1 bg-red-100 rounded-full text-red-600 hover:bg-red-200"
+                              title="Remove state"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </li>
+                        )}
+                        {group.regions
+                          .sort((a, b) => a.region.localeCompare(b.region))
+                          .map((region) => (
+                            <li
+                              key={region.id}
+                              className="flex items-center justify-between bg-gray-100 p-2 rounded-md"
+                            >
+                              <span className="text-sm text-gray-600">{region.region}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeServiceArea(region.id)}
+                                className="p-1 bg-red-100 rounded-full text-red-600 hover:bg-red-200"
+                                title="Remove region"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">
+                No service areas selected. Add states or regions above.
+              </p>
+            )}
+          </div>
         </div>
-      )}
+        <p className="mt-2 text-xs text-gray-500">
+          Select states or regions, then click "Add Service Areas" to save
+        </p>
+      </div>
 
       {vendor.specialties && vendor.specialties.length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
@@ -916,7 +1113,7 @@ export default function VendorDetailPage() {
 
                 const isExpanded = expandedPackages.has(vendorPackage.id);
                 const caret = isExpanded ? '▼' : '▸';
-                const packageStatus = vendorPackage.status; // Use status from vendor_service_packages
+                const packageStatus = vendorPackage.status;
 
                 return (
                   <div key={vendorPackage.id} className="bg-white border border-gray-200 rounded-lg p-6">
@@ -1102,7 +1299,7 @@ export default function VendorDetailPage() {
           <input
             type="text"
             value={newServicePackage.service_type}
-            readOnly // Make it read-only since it's set from the dropdown
+            readOnly
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-2 bg-gray-100"
             placeholder="Service Type (set from selection)"
           />
@@ -1203,7 +1400,7 @@ export default function VendorDetailPage() {
                       quality_rating: 5,
                       overall_rating: 5,
                       feedback: '',
-                      couple_id: null
+                      couple_id: null,
                     });
                   }}
                   className="px-4 py-2 border border-green-300 text-green-700 rounded-lg hover:bg-green-50 transition-colors"
@@ -1222,7 +1419,7 @@ export default function VendorDetailPage() {
                     </>
                   ) : (
                     <>
-                      <Plus className="h-4 w-4 mr-2" />
+                      <Plus className="h-4 w-4 mr-1" />
                       Add Review
                     </>
                   )}

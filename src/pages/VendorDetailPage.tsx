@@ -98,13 +98,19 @@ export default function VendorDetailPage() {
           ),
           vendor_service_areas (
             id, vendor_id, state, region
+          ),
+          vendor_languages (
+            language
           )
         `)
         .eq('id', id)
         .single();
 
       if (error) throw error;
-      setVendor(data);
+      setVendor({
+        ...data,
+        languages: data.vendor_languages ? data.vendor_languages.map((lang: { language: string }) => lang.language).sort() : [],
+      });
       setFormData({
         profile_photo: data.profile_photo || '',
         phone: data.phone || '',
@@ -862,6 +868,23 @@ export default function VendorDetailPage() {
                 </div>
               )}
             </div>
+            {vendor.languages && vendor.languages.length > 0 && (
+              <div>
+                <label className="text-sm font-medium text-gray-500 flex items-center">
+                  Languages
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {vendor.languages.map((language, index) => (
+                    <span
+                      key={index}
+                      className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
+                    >
+                      {language}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

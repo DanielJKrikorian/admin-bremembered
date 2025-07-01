@@ -28,15 +28,23 @@ export function VendorsPage() {
       const { data: vendorsData, error: vendorsError } = await supabase
         .from('vendors')
         .select(`
-          id, user_id, name, phone, years_experience, service_areas, specialties, stripe_account_id, created_at, updated_at, rating,
+          id, user_id, name, phone, years_experience, specialties, stripe_account_id, created_at, updated_at, rating,
           vendor_services (id, vendor_id, service_type, is_active),
           vendor_reviews (id, vendor_id),
-          vendor_service_packages (id, vendor_id, status)
+          vendor_service_packages (id, vendor_id, status),
+          vendor_service_areas (state)
         `)
         .order('created_at', { ascending: false });
 
       if (vendorsError) throw vendorsError;
-      setVendors(vendorsData || []);
+
+      // Transform vendor_service_areas to extract unique states
+      const transformedVendors = vendorsData?.map(vendor => ({
+        ...vendor,
+        states: [...new Set(vendor.vendor_service_areas.map((area: { state: string }) => area.state))].sort(),
+      })) || [];
+
+      setVendors(transformedVendors);
     } catch (error: any) {
       console.error('Error fetching vendors:', error);
       toast.error('Failed to load vendors');
@@ -247,18 +255,21 @@ export function VendorsPage() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-1">
-                          {vendor.service_areas?.slice(0, 2).map((area, index) => (
+                          {vendor.states?.slice(0, 2).map((state, index) => (
                             <span
                               key={index}
                               className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"
                             >
-                              {area}
+                              {state}
                             </span>
                           ))}
-                          {vendor.service_areas && vendor.service_areas.length > 2 && (
+                          {vendor.states && vendor.states.length > 2 && (
                             <span className="text-xs text-gray-500">
-                              +{vendor.service_areas.length - 2} more
+                              +{vendor.states.length - 2} more
                             </span>
+                          )}
+                          {(!vendor.states || vendor.states.length === 0) && (
+                            <span className="text-xs text-gray-400 italic">No service areas</span>
                           )}
                         </div>
                       </td>

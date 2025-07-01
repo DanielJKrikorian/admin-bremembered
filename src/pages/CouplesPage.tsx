@@ -6,6 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
 import ImportCouplesModal from '../components/ImportCouplesModal';
 import AddCoupleModal from '../components/AddCoupleModal';
+import { format, parseISO } from 'date-fns';
 
 interface Couple {
   id: string;
@@ -234,7 +235,7 @@ export function CouplesPage() {
                         {couple.wedding_date ? (
                           <>
                             <Calendar className="h-4 w-4 text-gray-400 mr-1" />
-                            <span>{new Date(couple.wedding_date).toLocaleDateString()}</span>
+                            <span>{format(parseISO(couple.wedding_date), 'MMM d, yyyy')}</span>
                           </>
                         ) : (
                           <span className="text-gray-400">Not set</span>
@@ -285,7 +286,7 @@ export function CouplesPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(couple.created_at).toLocaleDateString()}
+                      {format(parseISO(couple.created_at), 'MMM d, yyyy')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">

@@ -28,7 +28,7 @@ export default function IssuesPage() {
   const [openIssuesCount, setOpenIssuesCount] = useState(0);
   const [inProgressCount, setInProgressCount] = useState(0);
   const [resolvedCount, setResolvedCount] = useState(0);
-  const [filterStatus, setFilterStatus] = useState<string>('all'); // Dropdown filter state
+  const [filterStatus, setFilterStatus] = useState<string>('active'); // Default to active (open/in_progress)
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -60,10 +60,17 @@ export default function IssuesPage() {
           ...issue,
           vendor_name: vendorNames[issue.vendor_id] || 'N/A',
         }));
-        setIssues(mappedIssues || []);
-        setOpenIssuesCount(mappedIssues.filter(issue => issue.status.toLowerCase() === 'open').length);
-        setInProgressCount(mappedIssues.filter(issue => issue.status.toLowerCase() === 'in_progress').length);
-        setResolvedCount(mappedIssues.filter(issue => issue.status.toLowerCase() === 'resolved').length);
+
+        // Sort issues by severity (High > Medium > Low)
+        const severityOrder: { [key: string]: number } = { High: 1, Medium: 2, Low: 3 };
+        const sortedIssues = mappedIssues.sort((a, b) => 
+          severityOrder[a.severity] - severityOrder[b.severity]
+        );
+
+        setIssues(sortedIssues || []);
+        setOpenIssuesCount(sortedIssues.filter(issue => issue.status.toLowerCase() === 'open').length);
+        setInProgressCount(sortedIssues.filter(issue => issue.status.toLowerCase() === 'in_progress').length);
+        setResolvedCount(sortedIssues.filter(issue => issue.status.toLowerCase() === 'resolved').length);
       } catch (error: any) {
         console.error('Error fetching issues:', error);
         toast.error('Failed to load issues');
@@ -91,7 +98,9 @@ export default function IssuesPage() {
     );
   }
 
-  const filteredIssues = filterStatus === 'all'
+  const filteredIssues = filterStatus === 'active'
+    ? issues.filter(issue => ['open', 'in_progress'].includes(issue.status.toLowerCase()))
+    : filterStatus === 'all'
     ? issues
     : issues.filter(issue => issue.status.toLowerCase() === filterStatus);
 
@@ -130,19 +139,20 @@ export default function IssuesPage() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-lg font-semibold text-gray-900">Issues ({issues.length})</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Issues ({filteredIssues.length})</h2>
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
             className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
+            <option value="active">Active (Open/In Progress)</option>
             <option value="all">All</option>
             <option value="open">Open</option>
             <option value="in_progress">In Progress</option>
             <option value="resolved">Resolved</option>
           </select>
         </div>
-        {issues.length === 0 ? (
+        {filteredIssues.length === 0 ? (
           <div className="text-center py-12">
             <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No issues found</h3>

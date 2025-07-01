@@ -5,6 +5,7 @@ import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
+import { format, parseISO } from 'date-fns';
 
 interface Couple {
   id: string;
@@ -962,7 +963,7 @@ export default function CoupleDetailPage() {
               <>
                 <label className="text-sm font-medium text-gray-500">Wedding Date</label>
                 <p className="text-sm text-gray-900">
-                  {couple.wedding_date ? new Date(couple.wedding_date).toLocaleDateString() : 'Not set'}
+                  {couple.wedding_date ? format(parseISO(couple.wedding_date), 'MMM d, yyyy') : 'Not set'}
                 </p>
                 <button
                   onClick={() => setEditMode(prev => ({ ...prev, wedding_date: true }))}
@@ -1414,7 +1415,7 @@ export default function CoupleDetailPage() {
                       <div>
                         <h5 className="font-medium text-gray-900 mb-2">Booking Details</h5>
                         <p><span className="font-medium">Service Type:</span> {booking.service_type || 'N/A'}</p>
-                        <p><span className="font-medium">Booked On:</span> {new Date(booking.created_at).toLocaleDateString()}</p>
+                        <p><span className="font-medium">Booked On:</span> {format(parseISO(booking.created_at), 'MMM d, yyyy')}</p>
                       </div>
                     </div>
                   </div>
@@ -1466,7 +1467,7 @@ export default function CoupleDetailPage() {
                       <p><span className="font-medium">Type:</span> {event.type || 'N/A'}</p>
                       <p><span className="font-medium">Start Time:</span> {new Date(event.start_time).toLocaleString()}</p>
                       <p><span className="font-medium">End Time:</span> {new Date(event.end_time).toLocaleString()}</p>
-                      <p><span className="font-medium">Created:</span> {new Date(event.created_at).toLocaleDateString()}</p>
+                      <p><span className="font-medium">Created:</span> {format(parseISO(event.created_at), 'MMM d, yyyy')}</p>
                     </div>
                   </div>
                 )}
@@ -1574,7 +1575,7 @@ export default function CoupleDetailPage() {
                   </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
-                  Paid on: {new Date(payment.created_at).toLocaleDateString()}
+                  Paid on: {format(parseISO(payment.created_at), 'MMM d, yyyy')}
                 </p>
               </div>
             ))}

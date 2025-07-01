@@ -47,20 +47,21 @@ export interface VendorService {
   }
   
   export interface Vendor {
-    id: string
-    user_id: string
-    name: string
-    profile: string | null
-    phone: string | null
-    years_experience: number | null
-    service_types: string[]
-    service_areas: string[]
-    specialties: string[]
-    rating: number | null
-    stripe_account_id: string | null
-    created_at: string
-    updated_at: string
-    vendor_services?: VendorService[]
-    vendor_reviews?: VendorReview[]
-    vendor_service_packages?: VendorServicePackage[]
-  }
+  id: string;
+  user_id: string;
+  name: string;
+  phone: string | null;
+  years_experience: number;
+  specialties: string[] | null;
+  stripe_account_id: string | null;
+  created_at: string;
+  updated_at: string | null;
+  rating: number | null;
+  vendor_services: VendorService[] | null;
+  vendor_reviews: VendorReview[] | null;
+  vendor_service_packages: VendorServicePackage[] | null;
+  states: string[];
+  profile?: string | null;
+  profile_photo?: string | null;
+  vendor_service_areas?: { id: string; state: string; region: string | null }[];
+}

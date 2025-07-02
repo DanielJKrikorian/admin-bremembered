@@ -101,6 +101,8 @@ export default function BookingDetailPage() {
 
   useEffect(() => {
     fetchBooking();
+    fetchPackages();
+    fetchVenues();
   }, [id, eventPage]);
 
   const fetchBooking = async () => {
@@ -227,12 +229,6 @@ export default function BookingDetailPage() {
         package_id: bookingData.data.package_id || '',
         venue_id: bookingData.data.venue_id || ''
       });
-
-      // Log vendor_id for debugging
-      console.log('Booking vendor_id:', newBooking.vendor_id);
-
-      // Fetch packages and venues after booking is set
-      await Promise.all([fetchPackages(newBooking.vendor_id), fetchVenues()]);
     } catch (error: any) {
       console.error('Error fetching booking:', error);
       toast.error('Failed to load booking');
@@ -242,38 +238,41 @@ export default function BookingDetailPage() {
     }
   };
 
-  const fetchPackages = async (vendorId: string) => {
-    // Validate vendorId as a non-empty string and potential UUID
-    if (!vendorId || vendorId.trim() === '' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(vendorId)) {
-      console.warn('Invalid or missing vendor ID for fetching packages:', vendorId);
-      setPackages([]);
-      toast.warn('No valid vendor ID provided for packages');
-      return;
-    }
+  const fetchPackages = async () => {
     try {
-      console.log('Fetching packages for vendor_id:', vendorId);
+      console.log('Fetching all packages from service_packages');
       const { data, error } = await supabase
         .from('service_packages')
-        .select('id, name, description, price, service_type')
-        .eq('vendor_id', vendorId);
+        .select('id, name, description, price, service_type');
       if (error) throw error;
+      console.log('Fetched packages:', data);
       setPackages(data || []);
+      if (!data || data.length === 0) {
+        toast.info('No packages found in the database');
+      }
     } catch (error: any) {
       console.error('Error fetching packages:', JSON.stringify(error, null, 2));
       toast.error('Failed to load packages');
+      setPackages([]);
     }
   };
 
   const fetchVenues = async () => {
     try {
+      console.log('Fetching all venues');
       const { data, error } = await supabase
         .from('venues')
         .select('id, name, street_address, city, state, zip');
       if (error) throw error;
+      console.log('Fetched venues:', data);
       setVenues(data || []);
+      if (!data || data.length === 0) {
+        toast.info('No venues found');
+      }
     } catch (error: any) {
       console.error('Error fetching venues:', JSON.stringify(error, null, 2));
       toast.error('Failed to load venues');
+      setVenues([]);
     }
   };
 
@@ -297,7 +296,7 @@ export default function BookingDetailPage() {
         const selectedVenue = venues.find(v => v.id === formData.venue_id);
         if (selectedVenue) {
           updateData = {
-            vendor_id: formData.venue_id
+            venue_id: formData.venue_id
           };
         }
       }

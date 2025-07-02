@@ -36,6 +36,14 @@ interface Venue {
   zip: string | null;
 }
 
+interface ServicePackage {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number | null;
+  service_type: string;
+}
+
 interface Payment {
   id: string;
   amount: number;
@@ -73,8 +81,18 @@ export default function BookingDetailPage() {
   const navigate = useNavigate();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [venue, setVenue] = useState<Venue | null>(null);
-  const [editMode, setEditMode] = useState<Record<string, boolean>>({ status: false });
-  const [formData, setFormData] = useState({ status: '' });
+  const [packages, setPackages] = useState<ServicePackage[]>([]);
+  const [venues, setVenues] = useState<Venue[]>([]);
+  const [editMode, setEditMode] = useState<Record<string, boolean>>({ 
+    status: false,
+    package: false,
+    venue: false 
+  });
+  const [formData, setFormData] = useState({ 
+    status: '',
+    package_id: '',
+    venue_id: ''
+  });
   const [loading, setLoading] = useState(true);
   const [eventPage, setEventPage] = useState(0);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -83,6 +101,8 @@ export default function BookingDetailPage() {
 
   useEffect(() => {
     fetchBooking();
+    fetchPackages();
+    fetchVenues();
   }, [id, eventPage]);
 
   const fetchBooking = async () => {
@@ -199,6 +219,11 @@ export default function BookingDetailPage() {
       setPayments(paymentsData || []);
       setEmailLogs(emailLogsData.data || []);
       setUpcomingReminders(remindersData.data || []);
+      setFormData({
+        status: bookingData.data.status,
+        package_id: bookingData.data.package_id || '',
+        venue_id: bookingData.data.venue_id || ''
+      });
     } catch (error: any) {
       console.error('Error fetching booking:', error);
       toast.error('Failed to load booking');
@@ -208,12 +233,58 @@ export default function BookingDetailPage() {
     }
   };
 
+  const fetchPackages = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('service_packages')
+        .select('id, name, description, price, service_type')
+        .eq('vendor_id', booking?.vendor_id || '');
+      if (error) throw error;
+      setPackages(data || []);
+    } catch (error: any) {
+      console.error('Error fetching packages:', error);
+      toast.error('Failed to load packages');
+    }
+  };
+
+  const fetchVenues = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('venues')
+        .select('id, name, street_address, city, state, zip');
+      if (error) throw error;
+      setVenues(data || []);
+    } catch (error: any) {
+      console.error('Error fetching venues:', error);
+      toast.error('Failed to load venues');
+    }
+  };
+
   const handleSaveField = async (field: string) => {
     if (!booking) return;
 
     setLoading(true);
     try {
-      const updateData = { [field]: formData[field] };
+      let updateData: any = { [field]: formData[field] };
+
+      if (field === 'package_id') {
+        const selectedPackage = packages.find(p => p.id === formData.package_id);
+        if (selectedPackage) {
+          updateData = {
+            package_id: formData.package_id,
+            amount: selectedPackage.price || booking.amount,
+            service_type: selectedPackage.service_type,
+          };
+        }
+      } else if (field === 'venue_id') {
+        const selectedVenue = venues.find(v => v.id === formData.venue_id);
+        if (selectedVenue) {
+          updateData = {
+            venue_id: formData.venue_id
+          };
+        }
+      }
+
       const { error } = await supabase
         .from('bookings')
         .update(updateData)
@@ -221,7 +292,12 @@ export default function BookingDetailPage() {
 
       if (error) throw error;
 
-      setBooking(prev => prev ? { ...prev, ...updateData } : null);
+      if (field === 'package_id' || field === 'venue_id') {
+        await fetchBooking(); // Refresh booking to update dependent fields
+      } else {
+        setBooking(prev => prev ? { ...prev, ...updateData } : null);
+      }
+
       setEditMode(prev => ({ ...prev, [field]: false }));
       toast.success(`${field} updated successfully!`);
     } catch (error: any) {
@@ -253,7 +329,7 @@ export default function BookingDetailPage() {
       });
       if (error) throw error;
       toast.success('Reminder email sent successfully');
-      fetchBooking(); // Refresh email logs and upcoming reminders
+      fetchBooking();
     } catch (error: any) {
       console.error('Error sending reminder email:', error);
       toast.error('Failed to send reminder email');
@@ -272,7 +348,7 @@ export default function BookingDetailPage() {
       });
       if (error) throw error;
       toast.success('Reminder text sent successfully');
-      fetchBooking(); // Refresh email logs and upcoming reminders
+      fetchBooking();
     } catch (error: any) {
       console.error('Error sending reminder text:', error);
       toast.error('Failed to send reminder text');
@@ -293,7 +369,7 @@ export default function BookingDetailPage() {
       if (error) throw error;
 
       toast.success('Feedback request recorded successfully');
-      fetchBooking(); // Refresh email logs and upcoming reminders
+      fetchBooking();
     } catch (error: any) {
       console.error('Error recording feedback request:', error);
       toast.error('Failed to record feedback request');
@@ -376,7 +452,7 @@ export default function BookingDetailPage() {
                 <select
                   id="status"
                   value={formData.status}
-                  onChange={(e) => setFormData({ status: e.target.value })}
+                  onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="pending">Pending</option>
@@ -426,8 +502,50 @@ export default function BookingDetailPage() {
             <p className="text-sm text-gray-900">{booking.service_type}</p>
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-500">Package</label>
-            <p className="text-sm text-gray-900">{booking.package_name || 'N/A'}</p>
+            {editMode.package ? (
+              <>
+                <label htmlFor="package" className="text-sm font-medium text-gray-700 mb-2">Package</label>
+                <select
+                  id="package"
+                  value={formData.package_id}
+                  onChange={(e) => setFormData(prev => ({ ...prev, package_id: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a package</option>
+                  {packages.map((pkg) => (
+                    <option key={pkg.id} value={pkg.id}>{pkg.name}</option>
+                  ))}
+                </select>
+                <div className="mt-2 space-x-2">
+                  <button
+                    onClick={() => handleSaveField('package_id')}
+                    className="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                    disabled={loading || !formData.package_id}
+                  >
+                    <Save className="h-4 w-4 mr-1" />
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditMode(prev => ({ ...prev, package: false }))}
+                    className="inline-flex items-center px-3 py-1 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="text-sm font-medium text-gray-500">Package</label>
+                <p className="text-sm text-gray-900">{booking.package_name || 'N/A'}</p>
+                <button
+                  onClick={() => setEditMode(prev => ({ ...prev, package: true }))}
+                  className="mt-2 inline-flex items-center px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  Edit
+                </button>
+              </>
+            )}
           </div>
           <div>
             <label className="text-sm font-medium text-gray-500">Package Price</label>
@@ -444,27 +562,67 @@ export default function BookingDetailPage() {
         </div>
       </div>
 
-      {venue && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-            <MapPin className="h-5 w-5 text-blue-600 mr-2" />
-            Venue Information
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="text-sm font-medium text-gray-500">Venue Name</label>
-              <p className="text-sm text-gray-900">{venue.name}</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Address</label>
-              <p className="text-sm text-gray-900">
-                {venue.street_address || 'No address provided'}
-                {venue.city && venue.state && `, ${venue.city}, ${venue.state} ${venue.zip || ''}`}
-              </p>
-            </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+          <MapPin className="h-5 w-5 text-blue-600 mr-2" />
+          Venue Information
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            {editMode.venue ? (
+              <>
+                <label htmlFor="venue" className="text-sm font-medium text-gray-700 mb-2">Venue</label>
+                <select
+                  id="venue"
+                  value={formData.venue_id}
+                  onChange={(e) => setFormData(prev => ({ ...prev, venue_id: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a venue</option>
+                  {venues.map((v) => (
+                    <option key={v.id} value={v.id}>{v.name}</option>
+                  ))}
+                </select>
+                <div className="mt-2 space-x-2">
+                  <button
+                    onClick={() => handleSaveField('venue_id')}
+                    className="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                    disabled={loading || !formData.venue_id}
+                  >
+                    <Save className="h-4 w-4 mr-1" />
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditMode(prev => ({ ...prev, venue: false }))}
+                    className="inline-flex items-center px-3 py-1 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="text-sm font-medium text-gray-500">Venue Name</label>
+                <p className="text-sm text-gray-900">{venue?.name || 'N/A'}</p>
+                <button
+                  onClick={() => setEditMode(prev => ({ ...prev, venue: true }))}
+                  className="mt-2 inline-flex items-center px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  Edit
+                </button>
+              </>
+            )}
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-500">Address</label>
+            <p className="text-sm text-gray-900">
+              {venue?.street_address || 'No address provided'}
+              {venue?.city && venue?.state && `, ${venue.city}, ${venue.state} ${venue.zip || ''}`}
+            </p>
           </div>
         </div>
-      )}
+      </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">

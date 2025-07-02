@@ -42,6 +42,8 @@ export default function BookingAndEventsPage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isAddBookingModalOpen, setIsAddBookingModalOpen] = useState(false);
   const [isAddEventModalOpen, setIsAddEventModalOpen] = useState(false);
+  const [activeBookingTab, setActiveBookingTab] = useState<'upcoming' | 'past'>('upcoming');
+  const [activeEventTab, setActiveEventTab] = useState<'upcoming' | 'past'>('upcoming');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -83,7 +85,7 @@ export default function BookingAndEventsPage() {
           if (eventError) throw eventError;
           const startTimeUTC = eventData?.start_time;
           const startTimeEST = startTimeUTC
-            ? new Date(new Date(startTimeUTC).toLocaleString('en-US', { timeZone: 'America/New_York' })).toLocaleString()
+            ? new Date(new Date(startTimeUTC).toLocaleString('en-US', { timeZone: 'America/New_York' })).toISOString()
             : null;
           return {
             ...b,
@@ -102,7 +104,14 @@ export default function BookingAndEventsPage() {
         };
       }));
 
-      setBookings(bookingsWithEvents || []);
+      // Sort bookings by event_start_datetime (ascending for upcoming, descending for past)
+      const sortedBookings = bookingsWithEvents.sort((a, b) => {
+        const dateA = a.event_start_datetime !== 'N/A' ? new Date(a.event_start_datetime) : new Date(0);
+        const dateB = b.event_start_datetime !== 'N/A' ? new Date(b.event_start_datetime) : new Date(0);
+        return dateA.getTime() - dateB.getTime();
+      });
+
+      setBookings(sortedBookings || []);
       setEvents(eventsData.data.map(e => ({
         ...e,
         couple_name: e.couples?.name || 'Unknown',
@@ -117,20 +126,48 @@ export default function BookingAndEventsPage() {
     }
   };
 
-  const filteredBookings = bookings.filter(b =>
+  // Filter bookings and events based on tabs and search term
+  const now = new Date();
+  const filterByTime = (items: Booking[] | Event[], type: 'upcoming' | 'past', isBooking: boolean) => {
+    return items.filter(item => {
+      const date = isBooking
+        ? (item as Booking).event_start_datetime !== 'N/A' ? new Date((item as Booking).event_start_datetime) : new Date(0)
+        : new Date((item as Event).start_time);
+      return type === 'upcoming' ? date >= now : date < now;
+    });
+  };
+
+  const filteredBookings = filterByTime(bookings, activeBookingTab, true).filter(b =>
     b.couple_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     b.vendor_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     b.service_type.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const filteredEvents = events.filter(e =>
+  const filteredEvents = filterByTime(events, activeEventTab, false).filter(e =>
     e.couple_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     e.vendor_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     e.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
     e.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const displayedEvents = filteredEvents.slice(0, visibleEvents);
+  // Sort filtered bookings and events
+  const sortedFilteredBookings = filteredBookings.sort((a, b) => {
+    const dateA = a.event_start_datetime !== 'N/A' ? new Date(a.event_start_datetime) : new Date(0);
+    const dateB = b.event_start_datetime !== 'N/A' ? new Date(b.event_start_datetime) : new Date(0);
+    return activeBookingTab === 'upcoming'
+      ? dateA.getTime() - dateB.getTime()
+      : dateB.getTime() - dateA.getTime();
+  });
+
+  const sortedFilteredEvents = filteredEvents.sort((a, b) => {
+    const dateA = new Date(a.start_time);
+    const dateB = new Date(b.start_time);
+    return activeEventTab === 'upcoming'
+      ? dateA.getTime() - dateB.getTime()
+      : dateB.getTime() - dateA.getTime();
+  });
+
+  const displayedEvents = sortedFilteredEvents.slice(0, visibleEvents);
 
   const getDateStats = () => {
     const now = new Date();
@@ -292,13 +329,27 @@ export default function BookingAndEventsPage() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-gray-900">Bookings ({filteredBookings.length})</h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setActiveBookingTab('upcoming')}
+              className={`px-4 py-2 rounded-md ${activeBookingTab === 'upcoming' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+            >
+              Upcoming Bookings
+            </button>
+            <button
+              onClick={() => setActiveBookingTab('past')}
+              className={`px-4 py-2 rounded-md ${activeBookingTab === 'past' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+            >
+              Past Bookings
+            </button>
+          </div>
         </div>
         {filteredBookings.length === 0 ? (
           <div className="text-center py-12">
             <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No bookings found</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No {activeBookingTab} bookings found</h3>
             <p className="text-gray-500">Try adjusting your search or add a new booking.</p>
           </div>
         ) : (
@@ -316,7 +367,7 @@ export default function BookingAndEventsPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredBookings.map((booking) => (
+                {sortedFilteredBookings.map((booking) => (
                   <tr
                     key={booking.id}
                     className="hover:bg-gray-50 cursor-pointer transition-colors"
@@ -328,7 +379,7 @@ export default function BookingAndEventsPage() {
                     <td className="px-6 py-4 whitespace-nowrap">{booking.status}</td>
                     <td className="px-6 py-4 whitespace-nowrap">${(booking.amount / 100).toFixed(2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {booking.event_start_datetime}
+                      {booking.event_start_datetime !== 'N/A' ? new Date(booking.event_start_datetime).toLocaleString() : 'N/A'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
@@ -348,13 +399,27 @@ export default function BookingAndEventsPage() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h2 className="text-lg font-semibold text-gray-900">Events ({filteredEvents.length})</h2>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => { setActiveEventTab('upcoming'); setVisibleEvents(5); }}
+              className={`px-4 py-2 rounded-md ${activeEventTab === 'upcoming' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+            >
+              Upcoming Events
+            </button>
+            <button
+              onClick={() => { setActiveEventTab('past'); setVisibleEvents(5); }}
+              className={`px-4 py-2 rounded-md ${activeEventTab === 'past' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+            >
+              Past Events
+            </button>
+          </div>
         </div>
         {filteredEvents.length === 0 ? (
           <div className="text-center py-12">
             <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No events found</h3>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No {activeEventTab} events found</h3>
             <p className="text-gray-500">Try adjusting your search or add a new event.</p>
           </div>
         ) : (

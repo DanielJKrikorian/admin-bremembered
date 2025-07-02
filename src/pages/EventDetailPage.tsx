@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Calendar, Edit, Save, Clock } from 'lucide-react';
+import { Calendar, Edit, Save, X, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
@@ -21,8 +21,18 @@ export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [event, setEvent] = useState<Event | null>(null);
-  const [editMode, setEditMode] = useState<Record<string, boolean>>({ title: false, type: false });
-  const [formData, setFormData] = useState({ title: '', type: '' });
+  const [editMode, setEditMode] = useState<Record<string, boolean>>({ 
+    title: false, 
+    type: false, 
+    start_time: false, 
+    end_time: false 
+  });
+  const [formData, setFormData] = useState({ 
+    title: '', 
+    type: '', 
+    start_time: '', 
+    end_time: '' 
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -64,12 +74,19 @@ export default function EventDetailPage() {
         vendorName = vendorData?.name || 'Unknown';
       }
 
-      setEvent({
+      const newEvent = {
         ...eventData,
         couple_name: coupleName,
         vendor_name: vendorName
+      };
+
+      setEvent(newEvent);
+      setFormData({ 
+        title: eventData.title || '', 
+        type: eventData.type || '', 
+        start_time: eventData.start_time || '', 
+        end_time: eventData.end_time || '' 
       });
-      setFormData({ title: eventData.title || '', type: eventData.type || '' });
     } catch (error: any) {
       console.error('Error fetching event:', error);
       toast.error('Failed to load event');
@@ -164,6 +181,7 @@ export default function EventDetailPage() {
                     onClick={() => setEditMode(prev => ({ ...prev, title: false }))}
                     className="inline-flex items-center px-3 py-1 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700"
                   >
+                    <X className="h-4 w-4 mr-1" />
                     Cancel
                   </button>
                 </div>
@@ -206,6 +224,7 @@ export default function EventDetailPage() {
                     onClick={() => setEditMode(prev => ({ ...prev, type: false }))}
                     className="inline-flex items-center px-3 py-1 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700"
                   >
+                    <X className="h-4 w-4 mr-1" />
                     Cancel
                   </button>
                 </div>
@@ -225,12 +244,90 @@ export default function EventDetailPage() {
             )}
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-500">Start Time</label>
-            <p className="text-sm text-gray-900">{new Date(event.start_time).toLocaleString()}</p>
+            {editMode.start_time ? (
+              <>
+                <label htmlFor="start_time" className="text-sm font-medium text-gray-700 mb-2">Start Time</label>
+                <input
+                  type="datetime-local"
+                  id="start_time"
+                  value={formData.start_time ? new Date(formData.start_time).toISOString().slice(0, 16) : ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, start_time: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <div className="mt-2 space-x-2">
+                  <button
+                    onClick={() => handleSaveField('start_time')}
+                    className="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                    disabled={loading || !formData.start_time}
+                  >
+                    <Save className="h-4 w-4 mr-1" />
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditMode(prev => ({ ...prev, start_time: false }))}
+                    className="inline-flex items-center px-3 py-1 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700"
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="text-sm font-medium text-gray-500">Start Time</label>
+                <p className="text-sm text-gray-900">{new Date(event.start_time).toLocaleString()}</p>
+                <button
+                  onClick={() => setEditMode(prev => ({ ...prev, start_time: true }))}
+                  className="mt-2 inline-flex items-center px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  Edit
+                </button>
+              </>
+            )}
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-500">End Time</label>
-            <p className="text-sm text-gray-900">{new Date(event.end_time).toLocaleString()}</p>
+            {editMode.end_time ? (
+              <>
+                <label htmlFor="end_time" className="text-sm font-medium text-gray-700 mb-2">End Time</label>
+                <input
+                  type="datetime-local"
+                  id="end_time"
+                  value={formData.end_time ? new Date(formData.end_time).toISOString().slice(0, 16) : ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, end_time: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <div className="mt-2 space-x-2">
+                  <button
+                    onClick={() => handleSaveField('end_time')}
+                    className="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                    disabled={loading || !formData.end_time}
+                  >
+                    <Save className="h-4 w-4 mr-1" />
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditMode(prev => ({ ...prev, end_time: false }))}
+                    className="inline-flex items-center px-3 py-1 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-700"
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <label className="text-sm font-medium text-gray-500">End Time</label>
+                <p className="text-sm text-gray-900">{new Date(event.end_time).toLocaleString()}</p>
+                <button
+                  onClick={() => setEditMode(prev => ({ ...prev, end_time: true }))}
+                  className="mt-2 inline-flex items-center px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
+                >
+                  <Edit className="h-4 w-4 mr-1" />
+                  Edit
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

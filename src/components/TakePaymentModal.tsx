@@ -7,35 +7,14 @@ import { loadStripe, StripeCardElement, StripeElements } from '@stripe/stripe-js
 import Select from 'react-select';
 import toast from 'react-hot-toast';
 
-// Use environment variable for Stripe publishable key
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
-interface Couple {
+interface Invoice {
   id: string;
-  name: string;
-}
-
-interface Vendor {
-  id: string;
-  name: string;
-  stripe_account_id: string;
-}
-
-interface ServicePackage {
-  id: string;
-  name: string;
-  price: number;
-}
-
-interface Booking {
-  id: string;
-  couple_id: string;
-  vendor_id: string;
-  package_id: string;
-  amount: number;
   couple_name: string;
   vendor_name: string;
-  package_name: string;
+  service_name: string;
+  remaining_balance: number;
 }
 
 interface TakePaymentModalProps {
@@ -45,18 +24,10 @@ interface TakePaymentModalProps {
 }
 
 export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: TakePaymentModalProps) {
-  const [couples, setCouples] = useState<Couple[]>([]);
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [servicePackages, setServicePackages] = useState<ServicePackage[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [selectedCouple, setSelectedCouple] = useState<string>('');
-  const [selectedVendor, setSelectedVendor] = useState<string>('');
-  const [selectedPackage, setSelectedPackage] = useState<string>('');
-  const [selectedBooking, setSelectedBooking] = useState<string>('');
-  const [paymentType, setPaymentType] = useState<'deposit' | 'payment'>('deposit');
-  const [bRememberedPercentage, setBRememberedPercentage] = useState<number>(20);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [selectedInvoice, setSelectedInvoice] = useState<string>('');
   const [amount, setAmount] = useState<number>(0);
-  const [packagePrice, setPackagePrice] = useState<number>(0);
+  const [bRememberedPercentage, setBRememberedPercentage] = useState<number>(50);
   const [stripe, setStripe] = useState<StripeElements | null>(null);
   const [cardError, setCardError] = useState<string | null>(null);
   const cardElementRef = useRef<StripeCardElement | null>(null);
@@ -64,7 +35,7 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetchOptions();
+    fetchInvoices();
   }, []);
 
   useEffect(() => {
@@ -110,63 +81,50 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
       setStripe(null);
       setCardError(null);
     };
-  }, [isOpen, cardElementDivRef]);
+  }, [isOpen]);
 
-  const fetchOptions = async () => {
+  const fetchInvoices = async () => {
     try {
-      const [couplesData, vendorsData, packagesData, bookingsData] = await Promise.all([
-        supabase.from('couples').select('id, name'),
-        supabase.from('vendors').select('id, name, stripe_account_id'),
-        supabase.from('service_packages').select('id, name, price'),
-        supabase.from('bookings').select('id, couple_id, vendor_id, package_id, amount').then(async (result) => {
-          if (result.error) throw result.error;
-          const bookingsWithNames = await Promise.all(result.data.map(async (booking) => {
-            const [couple, vendor, packageData] = await Promise.all([
-              booking.couple_id ? supabase.from('couples').select('name').eq('id', booking.couple_id).single() : Promise.resolve({ data: null, error: null }),
-              booking.vendor_id ? supabase.from('vendors').select('name').eq('id', booking.vendor_id).single() : Promise.resolve({ data: null, error: null }),
-              booking.package_id ? supabase.from('service_packages').select('name').eq('id', booking.package_id).single() : Promise.resolve({ data: null, error: null })
-            ]);
-            return {
-              ...booking,
-              couple_name: couple.data?.name || 'Unknown',
-              vendor_name: vendor.data?.name || 'Unknown',
-              package_name: packageData.data?.name || 'Unknown'
-            };
-          }));
-          return { data: bookingsWithNames, error: null };
-        })
-      ]);
-      if (couplesData.error || vendorsData.error || packagesData.error || bookingsData.error) throw new Error('Failed to fetch options');
-      setCouples(couplesData.data || []);
-      setVendors(vendorsData.data || []);
-      setServicePackages(packagesData.data || []);
-      setBookings(bookingsData.data || []);
+      const { data: invoicesData, error } = await supabase
+        .from('invoices')
+        .select(`
+          id,
+          couple_id,
+          vendor_id,
+          remaining_balance,
+          couples(name),
+          vendors(name),
+          invoice_line_items(service_packages(name))
+        `)
+        .eq('status', 'pending');
+
+      if (error) throw error;
+
+      const invoicesWithDetails = invoicesData.map((invoice) => ({
+        id: invoice.id,
+        couple_name: invoice.couples?.name || 'Unknown',
+        vendor_name: invoice.vendors?.name || 'Unknown',
+        service_name: invoice.invoice_line_items?.[0]?.service_packages?.name || 'Custom Service',
+        remaining_balance: invoice.remaining_balance || 0,
+      }));
+
+      setInvoices(invoicesWithDetails);
     } catch (error: any) {
-      console.error('Error fetching options:', error);
-      toast.error('Failed to load options');
+      console.error('Error fetching invoices:', error);
+      toast.error('Failed to load invoices');
     }
   };
 
   useEffect(() => {
-    if (selectedPackage) {
-      const pkg = servicePackages.find(p => p.id === selectedPackage);
-      if (pkg) {
-        setPackagePrice(pkg.price);
-        setAmount(Math.round(pkg.price * 0.5 / 100) * 100); // 50% of price in cents
+    if (selectedInvoice) {
+      const invoice = invoices.find(i => i.id === selectedInvoice);
+      if (invoice) {
+        setAmount(invoice.remaining_balance / 100); // Set default to remaining balance in dollars
       } else {
-        setPackagePrice(0);
         setAmount(0);
       }
-    } else if (selectedBooking) {
-      const booking = bookings.find(b => b.id === selectedBooking);
-      if (booking) {
-        setSelectedCouple(booking.couple_id);
-        setSelectedVendor(booking.vendor_id);
-        setSelectedPackage(booking.package_id);
-        setAmount(booking.amount || 0); // Use booking amount or default to 0
-      }
     }
-  }, [selectedPackage, selectedBooking, bookings, servicePackages]);
+  }, [selectedInvoice, invoices]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,46 +132,28 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
 
     try {
       if (!stripe || !cardElementRef.current) throw new Error('Stripe not initialized');
+      if (!selectedInvoice || amount <= 0) throw new Error('Please select an invoice and enter a valid amount');
 
-      let bookingId: string;
-      const { data: bookingData } = await supabase
-        .from('bookings')
-        .select('id')
-        .eq('couple_id', selectedCouple)
-        .eq('vendor_id', selectedVendor)
-        .eq('package_id', selectedPackage)
-        .maybeSingle();
-      if (bookingData) {
-        bookingId = bookingData.id;
-      } else {
-        const { data: newBooking, error: bookingError } = await supabase
-          .from('bookings')
-          .insert({
-            couple_id: selectedCouple,
-            vendor_id: selectedVendor,
-            package_id: selectedPackage,
-            status: 'pending',
-            amount: Math.round(amount * 100),
-          })
-          .select('id')
-          .single();
-        if (bookingError) throw bookingError;
-        bookingId = newBooking.id;
-      }
-
-      const totalAmountInCents = Math.round(amount * 100);
-      const vendorStripeAccountId = selectedVendor ? vendors.find(v => v.id === selectedVendor)?.stripe_account_id : null;
+      const session = await supabase.auth.getSession();
+      const accessToken = session.data.session?.access_token;
 
       const { data, error: functionError } = await supabase.functions.invoke('create-payment', {
-        body: { bookingId, amount: totalAmountInCents, vendorId: vendorStripeAccountId, bRememberedPercentage },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: {
+          invoice_id: selectedInvoice,
+          amount,
+          bRememberedPercentage,
+        },
       });
 
       if (functionError) throw functionError;
 
-      const { paymentIntentId } = data;
+      const { paymentIntentId, client_secret } = data;
       const stripeInstance = await stripePromise;
 
-      const { error: confirmError, paymentIntent } = await stripeInstance.confirmCardPayment(paymentIntentId, {
+      const { error: confirmError, paymentIntent } = await stripeInstance!.confirmCardPayment(client_secret, {
         payment_method: { card: cardElementRef.current },
       });
 
@@ -272,92 +212,38 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
                 <div className="mt-2">
                   <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
-                      <label htmlFor="booking" className="block text-sm font-medium text-gray-700">Select Booking</label>
+                      <label htmlFor="invoice" className="block text-sm font-medium text-gray-700">Select Invoice</label>
                       <Select
-                        id="booking"
-                        options={bookings.map(booking => ({
-                          value: booking.id,
-                          label: `${booking.couple_name} - ${booking.vendor_name} - ${booking.package_name} - $${(booking.amount / 100).toFixed(2)}`
+                        id="invoice"
+                        options={invoices.map(invoice => ({
+                          value: invoice.id,
+                          label: `${invoice.couple_name} - ${invoice.vendor_name} - ${invoice.service_name} - $${(invoice.remaining_balance / 100).toFixed(2)}`
                         }))}
-                        value={bookings.find(b => b.id === selectedBooking) ? {
-                          value: selectedBooking,
-                          label: `${bookings.find(b => b.id === selectedBooking)?.couple_name} - ${bookings.find(b => b.id === selectedBooking)?.vendor_name} - ${bookings.find(b => b.id === selectedBooking)?.package_name} - $${(bookings.find(b => b.id === selectedBooking)?.amount / 100).toFixed(2)}`
+                        value={invoices.find(i => i.id === selectedInvoice) ? {
+                          value: selectedInvoice,
+                          label: `${invoices.find(i => i.id === selectedInvoice)?.couple_name} - ${invoices.find(i => i.id === selectedInvoice)?.vendor_name} - ${invoices.find(i => i.id === selectedInvoice)?.service_name} - $${(invoices.find(i => i.id === selectedInvoice)?.remaining_balance / 100).toFixed(2)}`
                         } : null}
-                        onChange={(selectedOption) => setSelectedBooking(selectedOption ? selectedOption.value : '')}
-                        placeholder="Search or select a booking..."
+                        onChange={(selectedOption) => setSelectedInvoice(selectedOption ? selectedOption.value : '')}
+                        placeholder="Search or select an invoice..."
                         className="w-full"
                         classNamePrefix="select"
                       />
-                    </div>
-                    <div>
-                      <label htmlFor="couple" className="block text-sm font-medium text-gray-700">Couple</label>
-                      <select
-                        id="couple"
-                        value={selectedCouple}
-                        onChange={(e) => setSelectedCouple(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        required
-                      >
-                        <option value="">Select Couple</option>
-                        {couples.map(couple => (
-                          <option key={couple.id} value={couple.id}>{couple.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label htmlFor="vendor" className="block text-sm font-medium text-gray-700">Vendor</label>
-                      <select
-                        id="vendor"
-                        value={selectedVendor}
-                        onChange={(e) => setSelectedVendor(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">B. Remembered Only</option>
-                        {vendors.map(vendor => (
-                          <option key={vendor.id} value={vendor.id}>{vendor.name} ({vendor.stripe_account_id})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label htmlFor="package" className="block text-sm font-medium text-gray-700">Service Package</label>
-                      <select
-                        id="package"
-                        value={selectedPackage}
-                        onChange={(e) => setSelectedPackage(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        required
-                      >
-                        <option value="">Select Package</option>
-                        {servicePackages.map(pkg => (
-                          <option key={pkg.id} value={pkg.id}>{pkg.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label htmlFor="payment-type" className="block text-sm font-medium text-gray-700">Payment Type</label>
-                      <select
-                        id="payment-type"
-                        value={paymentType}
-                        onChange={(e) => setPaymentType(e.target.value as 'deposit' | 'payment')}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="deposit">Deposit</option>
-                        <option value="payment">Second Payment</option>
-                      </select>
                     </div>
                     <div>
                       <label htmlFor="amount" className="block text-sm font-medium text-gray-700">Amount ($)</label>
                       <input
                         type="number"
                         id="amount"
-                        value={amount / 100} // Display in dollars
-                        onChange={(e) => setAmount(Math.round(parseFloat(e.target.value) * 100) || 0)} // Store in cents
+                        value={amount}
+                        onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
                         step="0.01"
                         min="0"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         required
                       />
-                      <p className="text-sm text-gray-500 mt-1">Suggested: ${(packagePrice / 100 / 2).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (50% of package price)</p>
+                      <p className="text-sm text-gray-500 mt-1">
+                        Suggested: ${(invoices.find(i => i.id === selectedInvoice)?.remaining_balance / 100 || 0).toFixed(2)}
+                      </p>
                     </div>
                     <div>
                       <label htmlFor="b-remembered-percentage" className="block text-sm font-medium text-gray-700">B. Remembered Percentage (%)</label>
@@ -377,10 +263,10 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
                       {cardError && <p className="text-sm text-red-600 mt-1">{cardError}</p>}
                       <p className="text-sm text-gray-500 mt-1">Enter card details to process payment.</p>
                     </div>
-                    <div className="mt-4">
+                    <div className="mt-4 flex space-x-2">
                       <button
                         type="submit"
-                        disabled={loading || !selectedCouple || !selectedPackage || amount <= 0 || !cardElementRef.current}
+                        disabled={loading || !selectedInvoice || amount <= 0 || !cardElementRef.current}
                         className="inline-flex justify-center px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-500 disabled:bg-green-400 disabled:cursor-not-allowed"
                       >
                         {loading ? (
@@ -398,7 +284,7 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
                       <button
                         type="button"
                         onClick={onClose}
-                        className="ml-2 inline-flex justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 border border-transparent rounded-md hover:bg-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-500"
+                        className="inline-flex justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 border border-transparent rounded-md hover:bg-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-500"
                       >
                         Cancel
                       </button>

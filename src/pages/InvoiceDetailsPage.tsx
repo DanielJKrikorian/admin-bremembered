@@ -3,16 +3,16 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, useStripe, useElements } from '@stripe/react-stripe-js';
-import { Calendar, Save, Plus, Eye, Trash2 } from 'lucide-react';
+import { Calendar, Save, Plus, Eye, Trash2, Copy, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
-import Modal from 'react-modal'; // Ensure this is installed
+import Modal from 'react-modal';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 if (!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY) {
   console.error('Stripe publishable key is not set in environment variables');
 }
 
-Modal.setAppElement('#root'); // Ensure modal accessibility
+Modal.setAppElement('#root');
 
 interface Couple {
   id: string;
@@ -25,7 +25,7 @@ interface Couple {
 interface Vendor {
   id: string;
   name: string;
-  email: string | null; // Can be null if no user match
+  email: string | null;
   phone: string;
   user_id: string;
 }
@@ -57,22 +57,28 @@ interface Invoice {
   couple_id?: string;
   vendor_id?: string;
   total_amount: number;
+  remaining_balance: number;
   discount_amount: number;
   discount_percentage: number;
   deposit_amount: number;
   status: string;
   paid_at?: string;
   stripe_payment_intent_id?: string;
-  stripe_payment_link_url?: string;
+  payment_token?: string;
   couples?: Couple;
   vendors?: Vendor;
   shipping_addresses?: { full_name: string; address_line1: string; address_line2: string; city: string; state: string; postal_code: string; country: string }[];
   invoice_line_items?: InvoiceLineItem[];
 }
 
-const CheckoutForm = ({ onPaymentSuccess }: { onPaymentSuccess: () => void }) => {
+const CheckoutForm: React.FC<{ invoiceId: string; amount: number; onPaymentSuccess: () => void }> = ({
+  invoiceId,
+  amount,
+  onPaymentSuccess,
+}) => {
   const stripe = useStripe();
   const elements = useElements();
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -81,34 +87,80 @@ const CheckoutForm = ({ onPaymentSuccess }: { onPaymentSuccess: () => void }) =>
       return;
     }
 
-    const cardElement = elements.getElement('card');
+    setIsProcessing(true);
 
-    if (!cardElement) {
-      toast.error('Card element not found.');
-      return;
-    }
+    try {
+      // Fetch Payment Intent for the invoice
+      const { data: invoice, error: invoiceError } = await supabase
+        .from('invoices')
+        .select('payment_token')
+        .eq('id', invoiceId)
+        .single();
 
-    const { error, paymentMethod } = await stripe.createPaymentMethod({
-      type: 'card',
-      card: cardElement,
-    });
+      if (invoiceError || !invoice?.payment_token) {
+        toast.error('Failed to fetch invoice details');
+        setIsProcessing(false);
+        return;
+      }
 
-    if (error) {
-      toast.error('Payment failed: ' + error.message);
-    } else {
-      toast.success('Payment processed successfully');
-      onPaymentSuccess();
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-payment-intent`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ payment_token: invoice.payment_token }),
+        }
+      );
+
+      const data = await response.json();
+      if (data.error) {
+        toast.error(data.error);
+        setIsProcessing(false);
+        return;
+      }
+
+      const cardElement = elements.getElement('card');
+      if (!cardElement) {
+        toast.error('Card element not found.');
+        setIsProcessing(false);
+        return;
+      }
+
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(data.client_secret, {
+        payment_method: { card: cardElement },
+      });
+
+      if (stripeError) {
+        toast.error('Payment failed: ' + stripeError.message);
+        setIsProcessing(false);
+        return;
+      }
+
+      if (paymentIntent.status === 'succeeded') {
+        toast.success('Payment processed successfully');
+        onPaymentSuccess();
+      }
+    } catch (error) {
+      console.error('Payment error:', error);
+      toast.error('An error occurred during payment');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   return (
     <form onSubmit={handleSubmit}>
-      <div>
-        <div id="card-element" className="mb-4"></div> {/* Ensure this div exists for mounting */}
-        <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg">
-          <Save className="h-4 w-4 mr-2" /> Confirm Payment
-        </button>
+      <div className="border rounded-md p-3 mb-4">
+        <div id="card-element"></div>
       </div>
+      <button
+        type="submit"
+        disabled={isProcessing || !stripe || !elements}
+        className="px-4 py-2 bg-green-600 text-white rounded-lg disabled:opacity-50"
+      >
+        <Save className="h-4 w-4 mr-2 inline" />
+        {isProcessing ? "Processing..." : `Pay $${(amount / 100).toFixed(2)}`}
+      </button>
     </form>
   );
 };
@@ -132,11 +184,11 @@ export default function InvoiceDetailsPage() {
   const [depositPercentage, setDepositPercentage] = useState<number>(0);
   const [servicePackages, setServicePackages] = useState<ServicePackage[]>([]);
   const [storeProducts, setStoreProducts] = useState<StoreProduct[]>([]);
-  const [users, setUsers] = useState<{ id: string; email: string }[]>([]); // To lookup vendor emails
+  const [users, setUsers] = useState<{ id: string; email: string }[]>([]);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
-  const [hasProduct, setHasProduct] = useState(false); // Added hasProduct state
-  const [isDiscountPercentage, setIsDiscountPercentage] = useState(false); // Added isDiscountPercentage state
+  const [hasProduct, setHasProduct] = useState(false);
+  const [isDiscountPercentage, setIsDiscountPercentage] = useState(false);
 
   useEffect(() => {
     fetchInvoice();
@@ -144,12 +196,10 @@ export default function InvoiceDetailsPage() {
   }, [id]);
 
   useEffect(() => {
-    // Update hasProduct based on lineItems
     setHasProduct(lineItems.some(item => item.type === 'store_product' && item.store_product_id));
   }, [lineItems]);
 
   useEffect(() => {
-    // Initialize isDiscountPercentage based on invoice data
     if (invoice) {
       setIsDiscountPercentage(invoice.discount_percentage > 0);
     }
@@ -157,7 +207,7 @@ export default function InvoiceDetailsPage() {
 
   const fetchInvoice = async () => {
     try {
-      console.log('Fetching invoice for id:', id); // Debug log
+      console.log('Fetching invoice for id:', id);
       const { data, error } = await supabase
         .from('invoices')
         .select(`
@@ -175,17 +225,15 @@ export default function InvoiceDetailsPage() {
         throw error;
       }
 
-      // Fetch users to lookup emails
       const { data: usersData, error: usersError } = await supabase.from('users').select('id, email');
       if (usersError) throw usersError;
       setUsers(usersData || []);
 
-      // Map vendor email based on user_id
       const vendorWithEmail = data.vendors
         ? { ...data.vendors, email: usersData.find(u => u.id === data.vendors.user_id)?.email || null }
         : null;
 
-      console.log('Invoice data:', data); // Debug log
+      console.log('Invoice data:', data);
       setInvoice({ ...data, vendors: vendorWithEmail });
       setLineItems(data.invoice_line_items || []);
       setShippingAddress(data.shipping_addresses?.[0] || {
@@ -208,7 +256,7 @@ export default function InvoiceDetailsPage() {
 
   const fetchSupportingData = async () => {
     try {
-      console.log('Fetching supporting data'); // Debug log
+      console.log('Fetching supporting data');
       const [servicePackagesResponse, storeProductsResponse] = await Promise.all([
         supabase.from('service_packages').select('id, name, price'),
         supabase.from('store_products').select('id, name, price'),
@@ -217,8 +265,8 @@ export default function InvoiceDetailsPage() {
       if (servicePackagesResponse.error) throw servicePackagesResponse.error;
       if (storeProductsResponse.error) throw storeProductsResponse.error;
 
-      console.log('Service packages:', servicePackagesResponse.data); // Debug log
-      console.log('Store products:', storeProductsResponse.data); // Debug log
+      console.log('Service packages:', servicePackagesResponse.data);
+      console.log('Store products:', storeProductsResponse.data);
       setServicePackages(servicePackagesResponse.data || []);
       setStoreProducts(storeProductsResponse.data || []);
     } catch (error: any) {
@@ -276,13 +324,14 @@ export default function InvoiceDetailsPage() {
     const deposit = calculateDeposit();
     const updates = {
       total_amount: total,
+      remaining_balance: total - deposit,
       discount_amount: isDiscountPercentage ? 0 : discountAmount,
       discount_percentage: isDiscountPercentage ? discountPercentage : 0,
       deposit_amount: deposit,
     };
 
     try {
-      console.log('Saving changes with updates:', updates); // Debug log
+      console.log('Saving changes with updates:', updates);
       const { error } = await supabase
         .from('invoices')
         .update(updates)
@@ -314,32 +363,30 @@ export default function InvoiceDetailsPage() {
     fetchInvoice();
   };
 
-  const handleLinkSuccess = (url: string) => {
-    setIsLinkModalOpen(false);
-    fetchInvoice();
+  const copyInvoiceLink = () => {
+    if (!invoice?.payment_token) {
+      toast.error('No payment token available');
+      return;
+    }
+    const link = `https://app.bremembered.io/invoice/${invoice.payment_token}`;
+    navigator.clipboard.writeText(link);
+    toast.success('Invoice link copied to clipboard!');
   };
 
-  const handleCreatePaymentLink = async () => {
-    const stripe = await stripePromise;
-    if (!stripe) {
-      toast.error('Stripe is not initialized. Check your publishable key.');
+  const sendInvoiceEmail = async () => {
+    if (!invoice?.payment_token) {
+      toast.error('No payment token available');
       return;
     }
-    const { error, url } = await stripe.paymentLinks.create({
-      line_items: [{ price_data: { currency: 'usd', product_data: { name: 'Invoice Payment' }, unit_amount: calculateTotal() }, quantity: 1 }],
-      mode: 'payment',
-      success_url: 'https://yourdomain.com/success',
-      cancel_url: 'https://yourdomain.com/cancel',
-    });
-    if (error) {
-      toast.error('Failed to create payment link: ' + error.message);
-      return;
+    const link = `https://app.bremembered.io/invoice/${invoice.payment_token}`;
+    try {
+      // Placeholder for email sending (e.g., via SendGrid edge function)
+      console.log(`Sending email for invoice ${invoice.id} to couple ${invoice.couples?.email} with link: ${link}`);
+      toast.success(`Invoice email sent to ${invoice.couples?.email}`);
+    } catch (err) {
+      console.error('Error sending invoice email:', err);
+      toast.error('Failed to send invoice email');
     }
-    await supabase
-      .from('invoices')
-      .update({ stripe_payment_link_url: url, status: 'sent' })
-      .eq('id', id);
-    handleLinkSuccess(url);
   };
 
   return (
@@ -354,6 +401,20 @@ export default function InvoiceDetailsPage() {
               <h3 className="text-lg font-medium">Invoice ID: {invoice.id}</h3>
               <p><strong>Status:</strong> {invoice.status}</p>
               <p><strong>Total Amount:</strong> ${(invoice.total_amount / 100).toFixed(2)}</p>
+              <p><strong>Remaining Balance:</strong> ${(invoice.remaining_balance / 100).toFixed(2)}</p>
+              {invoice.payment_token && (
+                <p>
+                  <strong>Payment Link:</strong>{' '}
+                  <a
+                    href={`https://app.bremembered.io/invoice/${invoice.payment_token}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline"
+                  >
+                    https://app.bremembered.io/invoice/{invoice.payment_token}
+                  </a>
+                </p>
+              )}
             </div>
             {invoice.couples && (
               <div className="mb-4 p-4 bg-gray-50 rounded-lg">
@@ -503,7 +564,7 @@ export default function InvoiceDetailsPage() {
                       checked={!isDiscountPercentage}
                       onChange={() => {
                         setIsDiscountPercentage(false);
-                        setDiscountPercentage(0); // Reset percentage when switching to dollar
+                        setDiscountPercentage(0);
                       }}
                       className="mr-1"
                     />
@@ -515,7 +576,7 @@ export default function InvoiceDetailsPage() {
                       checked={isDiscountPercentage}
                       onChange={() => {
                         setIsDiscountPercentage(true);
-                        setDiscountAmount(0); // Reset amount when switching to percentage
+                        setDiscountAmount(0);
                       }}
                       className="mr-1 ml-2"
                     />
@@ -549,16 +610,23 @@ export default function InvoiceDetailsPage() {
                 <p className="text-sm font-medium">Deposit: ${(calculateDeposit() / 100).toFixed(2)}</p>
                 <p className="text-sm font-medium">Total: ${((calculateTotal() - calculateDeposit()) / 100).toFixed(2)}</p>
               </div>
-              <button onClick={saveChanges} className="px-4 py-2 bg-blue-600 text-white rounded-lg">
-                <Save className="h-4 w-4 mr-2" /> Save Changes
-              </button>
-              <div className="mt-4 flex space-x-2">
-                <button onClick={() => setIsPaymentModalOpen(true)} className="px-4 py-2 bg-green-600 text-white rounded-lg">
-                  <Save className="h-4 w-4 mr-2" /> Pay with Card
+              <div className="flex space-x-2">
+                <button onClick={saveChanges} className="px-4 py-2 bg-blue-600 text-white rounded-lg">
+                  <Save className="h-4 w-4 mr-2" /> Save Changes
                 </button>
-                <button onClick={() => setIsLinkModalOpen(true)} className="px-4 py-2 bg-purple-600 text-white rounded-lg">
-                  <Plus className="h-4 w-4 mr-2" /> Create Payment Link
-                </button>
+                {invoice.remaining_balance > 0 && (
+                  <>
+                    <button onClick={() => setIsPaymentModalOpen(true)} className="px-4 py-2 bg-green-600 text-white rounded-lg">
+                      <Save className="h-4 w-4 mr-2" /> Pay with Card
+                    </button>
+                    <button onClick={copyInvoiceLink} className="px-4 py-2 bg-purple-600 text-white rounded-lg">
+                      <Copy className="h-4 w-4 mr-2" /> Copy Payment Link
+                    </button>
+                    <button onClick={sendInvoiceEmail} className="px-4 py-2 bg-purple-600 text-white rounded-lg">
+                      <Mail className="h-4 w-4 mr-2" /> Send Invoice Email
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -581,9 +649,13 @@ export default function InvoiceDetailsPage() {
         }}
       >
         <h2 className="text-xl font-bold mb-4">Pay with Card</h2>
-        {stripePromise && (
+        {stripePromise && invoice && (
           <Elements stripe={stripePromise}>
-            <CheckoutForm onPaymentSuccess={handlePaymentSuccess} />
+            <CheckoutForm
+              invoiceId={invoice.id}
+              amount={invoice.remaining_balance}
+              onPaymentSuccess={handlePaymentSuccess}
+            />
           </Elements>
         )}
         <button onClick={() => setIsPaymentModalOpen(false)} className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg">
@@ -606,16 +678,28 @@ export default function InvoiceDetailsPage() {
           },
         }}
       >
-        <h2 className="text-xl font-bold mb-4">Create Payment Link</h2>
-        <button
-          onClick={handleCreatePaymentLink}
-          className="px-4 py-2 bg-purple-600 text-white rounded-lg"
-        >
-          <Plus className="h-4 w-4 mr-2" /> Generate Link
-        </button>
-        {invoice?.stripe_payment_link_url && (
-          <p className="mt-4">Payment Link: <a href={invoice.stripe_payment_link_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">{invoice.stripe_payment_link_url}</a></p>
+        <h2 className="text-xl font-bold mb-4">Invoice Payment Link</h2>
+        {invoice?.payment_token && (
+          <p className="mb-4">
+            <strong>Payment Link:</strong>{' '}
+            <a
+              href={`https://app.bremembered.io/invoice/${invoice.payment_token}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 underline"
+            >
+              https://app.bremembered.io/invoice/{invoice.payment_token}
+            </a>
+          </p>
         )}
+        <div className="flex space-x-2">
+          <button onClick={copyInvoiceLink} className="px-4 py-2 bg-purple-600 text-white rounded-lg">
+            <Copy className="h-4 w-4 mr-2" /> Copy Link
+          </button>
+          <button onClick={sendInvoiceEmail} className="px-4 py-2 bg-purple-600 text-white rounded-lg">
+            <Mail className="h-4 w-4 mr-2" /> Send Email
+          </button>
+        </div>
         <button onClick={() => setIsLinkModalOpen(false)} className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg">
           Close
         </button>

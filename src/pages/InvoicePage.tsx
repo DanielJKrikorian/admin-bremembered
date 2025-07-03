@@ -1,14 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { loadStripe } from '@stripe/stripe-js';
-import { Calendar, Plus, Trash2, Save, Search, Eye } from 'lucide-react';
+import { Calendar, Plus, Trash2, Search, Eye, Copy, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
-
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
-if (!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY) {
-  console.error('Stripe publishable key is not set in environment variables');
-}
 
 interface Couple {
   id: string;
@@ -16,11 +10,6 @@ interface Couple {
   partner2_name: string;
   email: string;
   phone: string;
-  venue_street_address: string;
-  venue_city: string;
-  venue_state: string;
-  venue_zip: string;
-  venue_region: string;
 }
 
 interface Vendor {
@@ -53,32 +42,40 @@ interface InvoiceLineItem {
   quantity: number;
 }
 
+interface Invoice {
+  id: string;
+  couple_id?: string;
+  vendor_id?: string;
+  total_amount: number;
+  remaining_balance: number;
+  discount_amount: number;
+  discount_percentage: number;
+  deposit_amount: number;
+  status: string;
+  paid_at?: string;
+  payment_token?: string;
+  couples?: Couple;
+  vendors?: Vendor;
+  invoice_line_items?: InvoiceLineItem[];
+}
+
 export default function InvoicePage() {
   const navigate = useNavigate();
   const [couples, setCouples] = useState<Couple[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [servicePackages, setServicePackages] = useState<ServicePackage[]>([]);
   const [storeProducts, setStoreProducts] = useState<StoreProduct[]>([]);
-  const [invoices, setInvoices] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [selectedCoupleId, setSelectedCoupleId] = useState<string | null>(null);
   const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
-  const [shippingAddress, setShippingAddress] = useState({
-    full_name: '',
-    address_line1: '',
-    address_line2: '',
-    city: '',
-    state: '',
-    postal_code: '',
-    country: '',
-  });
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([]);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [discountPercentage, setDiscountPercentage] = useState<number>(0);
   const [depositPercentage, setDepositPercentage] = useState<number>(0);
-  const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isDiscountPercentage, setIsDiscountPercentage] = useState(false); // Toggle for discount type
-  const [hasProduct, setHasProduct] = useState(false); // Track if a store_product is selected
+  const [isDiscountPercentage, setIsDiscountPercentage] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showCreateForm, setShowCreateForm] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -86,6 +83,7 @@ export default function InvoicePage() {
 
   const fetchData = async () => {
     try {
+      setIsLoading(true);
       const [couplesResponse, vendorsResponse, usersResponse, servicePackagesResponse, storeProductsResponse, invoicesResponse] = await Promise.all([
         supabase.from('couples').select('*'),
         supabase.from('vendors').select('id, name, user_id, phone'),
@@ -94,9 +92,8 @@ export default function InvoicePage() {
         supabase.from('store_products').select('id, name, price'),
         supabase.from('invoices').select(`
           *,
-          couples(partner1_name, partner2_name, email, phone, venue_street_address, venue_city, venue_state, venue_zip, venue_region),
+          couples(partner1_name, partner2_name, email, phone),
           vendors(name, user_id, phone),
-          shipping_addresses(*),
           invoice_line_items(*, service_packages(name), store_products(name))
         `),
       ]);
@@ -108,7 +105,7 @@ export default function InvoicePage() {
       if (storeProductsResponse.error) throw storeProductsResponse.error;
       if (invoicesResponse.error) throw invoicesResponse.error;
 
-      const vendorWithEmail = (vendorsResponse.data || []).map((vendor: any) => {
+      const vendorWithEmail = vendorsResponse.data.map((vendor: any) => {
         const user = usersResponse.data.find((u: any) => u.id === vendor.user_id);
         return {
           ...vendor,
@@ -124,25 +121,16 @@ export default function InvoicePage() {
     } catch (error: any) {
       console.error('Error fetching data:', error);
       toast.error('Failed to load data');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const getSelectedCouple = () => selectedCoupleId ? couples.find(c => c.id === selectedCoupleId) : null;
-  const getSelectedVendor = () => selectedVendorId ? vendors.find(v => v.id === selectedVendorId) : null;
-
-  useEffect(() => {
-    // No auto-fill for shipping address, left blank for manual entry
-    setHasProduct(lineItems.some(item => item.type === 'store_product' && item.store_product_id));
-  }, [lineItems]);
-
-  const addLineItem = (type: 'service_package' | 'store_product' | 'custom', item?: any) => {
-    const newItem = item || { id: '', price: 0 };
+  const addLineItem = () => {
     setLineItems([...lineItems, {
-      type,
-      service_package_id: type === 'service_package' ? newItem.id : undefined,
-      store_product_id: type === 'store_product' ? newItem.id : undefined,
-      custom_description: type === 'custom' ? '' : undefined,
-      custom_price: type === 'custom' ? 0 : newItem.price,
+      type: 'custom',
+      custom_description: '',
+      custom_price: 0,
       quantity: 1,
     }]);
   };
@@ -177,26 +165,30 @@ export default function InvoicePage() {
   };
 
   const handleSaveInvoice = async () => {
+    if (!selectedCoupleId || !selectedVendorId || lineItems.length === 0) {
+      toast.error('Please select a couple, vendor, and add at least one line item');
+      return;
+    }
+
     const total = calculateTotal();
     const deposit = calculateDeposit();
     const newInvoice = {
       couple_id: selectedCoupleId,
       vendor_id: selectedVendorId,
       total_amount: total,
+      remaining_balance: total - deposit,
       discount_amount: isDiscountPercentage ? 0 : discountAmount,
       discount_percentage: isDiscountPercentage ? discountPercentage : 0,
       deposit_amount: deposit,
+      status: 'pending',
+      payment_token: null, // Generated by database
     };
 
     try {
       const { data, error } = await supabase
         .from('invoices')
         .insert(newInvoice)
-        .select(`
-          *,
-          shipping_addresses(*),
-          invoice_line_items(*, service_packages(name), store_products(name))
-        `)
+        .select('*, payment_token')
         .single();
       if (error) throw error;
 
@@ -212,28 +204,14 @@ export default function InvoicePage() {
       const { error: lineItemsError } = await supabase.from('invoice_line_items').insert(lineItemsData);
       if (lineItemsError) throw lineItemsError;
 
-      if (shippingAddress.full_name) {
-        await supabase.from('shipping_addresses').insert({
-          invoice_id: data.id,
-          ...shippingAddress,
-        });
-      }
-
       toast.success('Invoice created successfully!');
-      setSelectedInvoice({ ...data, invoice_line_items: lineItems });
       setLineItems([]);
+      setSelectedCoupleId(null);
+      setSelectedVendorId(null);
       setDiscountAmount(0);
       setDiscountPercentage(0);
       setDepositPercentage(0);
-      setShippingAddress({
-        full_name: '',
-        address_line1: '',
-        address_line2: '',
-        city: '',
-        state: '',
-        postal_code: '',
-        country: '',
-      });
+      setShowCreateForm(false);
       fetchData();
     } catch (error: any) {
       console.error('Error saving invoice:', error);
@@ -241,344 +219,331 @@ export default function InvoicePage() {
     }
   };
 
-  const handleStripePayment = async () => {
-    if (!selectedInvoice) return;
-
-    const stripe = await stripePromise;
-    if (!stripe) {
-      toast.error('Stripe is not initialized. Check your publishable key.');
-      return;
-    }
-    const { error } = await stripe.createPaymentMethod({
-      type: 'card',
-      card: { number: '4242424242424242', exp_month: 12, exp_year: 2025, cvc: '123' }, // Test card
-    });
-    if (error) {
-      toast.error('Payment failed: ' + error.message);
-      return;
-    }
-    toast.success('Payment processed manually');
-    await supabase
-      .from('invoices')
-      .update({ status: 'paid', paid_at: new Date().toISOString() })
-      .eq('id', selectedInvoice.id);
-    setSelectedInvoice({ ...selectedInvoice, status: 'paid', paid_at: new Date().toISOString() });
-    fetchData();
+  const copyInvoiceLink = async (paymentToken: string) => {
+    const link = `https://app.bremembered.io/invoice-payment/${paymentToken}`;
+    navigator.clipboard.writeText(link);
+    toast.success('Invoice link copied to clipboard!');
   };
 
-  const handleCreatePaymentLink = async () => {
-    if (!selectedInvoice) return;
-
-    const stripe = await stripePromise;
-    if (!stripe) {
-      toast.error('Stripe is not initialized. Check your publishable key.');
-      return;
+  const sendInvoiceEmail = async (invoice: Invoice) => {
+    try {
+      const session = await supabase.auth.getSession();
+      const accessToken = session.data.session?.access_token;
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invoice-email`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ invoice_id: invoice.id }),
+        }
+      );
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      toast.success(`Invoice email sent to ${invoice.couples?.email}`);
+    } catch (err) {
+      console.error('Error sending invoice email:', err);
+      toast.error('Failed to send invoice email');
     }
-    const { error, url } = await stripe.paymentLinks.create({
-      line_items: [{ price_data: { currency: 'usd', product_data: { name: 'Invoice Payment' }, unit_amount: selectedInvoice.total_amount }, quantity: 1 }],
-      mode: 'payment',
-      success_url: 'https://yourdomain.com/success',
-      cancel_url: 'https://yourdomain.com/cancel',
-    });
-    if (error) {
-      toast.error('Failed to create payment link: ' + error.message);
-      return;
-    }
-    await supabase
-      .from('invoices')
-      .update({ stripe_payment_link_url: url, status: 'sent' })
-      .eq('id', selectedInvoice.id);
-    toast.success('Payment link created: ' + url);
-    setSelectedInvoice({ ...selectedInvoice, stripe_payment_link_url: url, status: 'sent' });
-    fetchData();
   };
 
   const filteredInvoices = invoices.filter(invoice =>
-    (invoice.couple_id ? `${invoice.couples.partner1_name} ${invoice.couples.partner2_name}`.toLowerCase().includes(searchTerm.toLowerCase()) : false) ||
-    (invoice.vendor_id ? invoice.vendors.name.toLowerCase().includes(searchTerm.toLowerCase()) : false) ||
-    invoice.status.toLowerCase().includes(searchTerm.toLowerCase())
+    (invoice.couples ? `${invoice.couples.partner1_name} ${invoice.couples.partner2_name || ''}`.toLowerCase().includes(searchTerm.toLowerCase()) : false) ||
+    (invoice.vendors ? invoice.vendors.name.toLowerCase().includes(searchTerm.toLowerCase()) : false) ||
+    invoice.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  return (
-    <div className="space-y-8 p-6">
-      <h1 className="text-3xl font-bold text-gray-900 flex items-center">
-        <Calendar className="h-8 w-8 text-blue-600 mr-3" /> Invoices
-      </h1>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <div className="flex justify-between items-center mb-4">
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search invoices..."
-            className="w-full max-w-xs pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <select
-            value={selectedCoupleId || ''}
-            onChange={(e) => setSelectedCoupleId(e.target.value || null)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Select Couple</option>
-            {couples.map(couple => (
-              <option key={couple.id} value={couple.id}>
-                {couple.partner1_name} {couple.partner2_name || ''}
-              </option>
-            ))}
-          </select>
-          <select
-            value={selectedVendorId || ''}
-            onChange={(e) => setSelectedVendorId(e.target.value || null)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Select Vendor</option>
-            {vendors.map(vendor => (
-              <option key={vendor.id} value={vendor.id}>{vendor.name} ({vendor.email})</option>
-            ))}
-          </select>
-        </div>
-        {/* Display Selected Couple or Vendor Info */}
-        {selectedCoupleId && (
-          <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-            <h3 className="text-lg font-medium">Couple Information</h3>
-            <p><strong>Name:</strong> {getSelectedCouple()?.partner1_name} {getSelectedCouple()?.partner2_name || ''}</p>
-            <p><strong>Email:</strong> {getSelectedCouple()?.email}</p>
-            <p><strong>Phone:</strong> {getSelectedCouple()?.phone}</p>
-          </div>
-        )}
-        {selectedVendorId && (
-          <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-            <h3 className="text-lg font-medium">Vendor Information</h3>
-            <p><strong>Name:</strong> {getSelectedVendor()?.name}</p>
-            <p><strong>Email:</strong> {getSelectedVendor()?.email}</p>
-            <p><strong>Phone:</strong> {getSelectedVendor()?.phone}</p>
-          </div>
-        )}
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Line Items</label>
-            {lineItems.map((item, index) => (
-              <div key={index} className="flex space-x-2 mb-2">
-                <select
-                  value={item.type}
-                  onChange={(e) => updateLineItem(index, 'type', e.target.value)}
-                  className="w-1/4 px-3 py-2 border border-gray-300 rounded-lg"
-                >
-                  <option value="service_package">Service Package</option>
-                  <option value="store_product">Store Product</option>
-                  <option value="custom">Custom</option>
-                </select>
-                {item.type === 'service_package' && (
-                  <select
-                    value={item.service_package_id || ''}
-                    onChange={(e) => updateLineItem(index, 'service_package_id', e.target.value)}
-                    className="w-1/4 px-3 py-2 border border-gray-300 rounded-lg"
-                  >
-                    <option value="">Select Package</option>
-                    {servicePackages.map(pkg => (
-                      <option key={pkg.id} value={pkg.id}>{pkg.name} (${(pkg.price / 100).toFixed(2)})</option>
-                    ))}
-                  </select>
-                )}
-                {item.type === 'store_product' && (
-                  <select
-                    value={item.store_product_id || ''}
-                    onChange={(e) => updateLineItem(index, 'store_product_id', e.target.value)}
-                    className="w-1/4 px-3 py-2 border border-gray-300 rounded-lg"
-                  >
-                    <option value="">Select Product</option>
-                    {storeProducts.map(product => (
-                      <option key={product.id} value={product.id}>{product.name} (${(product.price / 100).toFixed(2)})</option>
-                    ))}
-                  </select>
-                )}
-                {item.type === 'custom' && (
-                  <>
-                    <input
-                      type="text"
-                      value={item.custom_description || ''}
-                      onChange={(e) => updateLineItem(index, 'custom_description', e.target.value)}
-                      placeholder="Description"
-                      className="w-1/4 px-3 py-2 border border-gray-300 rounded-lg"
-                    />
-                    <input
-                      type="number"
-                      value={item.custom_price / 100 || 0}
-                      onChange={(e) => updateLineItem(index, 'custom_price', parseInt(e.target.value, 10) * 100 || 0)}
-                      placeholder="Price ($)"
-                      className="w-1/6 px-3 py-2 border border-gray-300 rounded-lg"
-                    />
-                  </>
-                )}
-                <input
-                  type="number"
-                  value={item.quantity}
-                  onChange={(e) => updateLineItem(index, 'quantity', parseInt(e.target.value, 10) || 1)}
-                  className="w-1/6 px-3 py-2 border border-gray-300 rounded-lg"
-                />
-                <button onClick={() => removeLineItem(index)} className="px-2 py-1 bg-red-600 text-white rounded-lg">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
-            <button onClick={() => addLineItem('custom')} className="mt-2 px-4 py-2 bg-green-600 text-white rounded-lg">
-              <Plus className="h-4 w-4 mr-2" /> Add Line Item
-            </button>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">{hasProduct ? 'Booking Address' : 'Shipping Address'}</label>
-            <input
-              type="text"
-              value={shippingAddress.full_name}
-              onChange={(e) => setShippingAddress({ ...shippingAddress, full_name: e.target.value })}
-              placeholder={hasProduct ? 'Booking Address - Full Name' : 'Full Name'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-2"
-            />
-            <input
-              type="text"
-              value={shippingAddress.address_line1}
-              onChange={(e) => setShippingAddress({ ...shippingAddress, address_line1: e.target.value })}
-              placeholder={hasProduct ? 'Booking Address - Line 1' : 'Address Line 1'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-2"
-            />
-            <input
-              type="text"
-              value={shippingAddress.address_line2}
-              onChange={(e) => setShippingAddress({ ...shippingAddress, address_line2: e.target.value })}
-              placeholder={hasProduct ? 'Booking Address - Line 2' : 'Address Line 2'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-2"
-            />
-            <input
-              type="text"
-              value={shippingAddress.city}
-              onChange={(e) => setShippingAddress({ ...shippingAddress, city: e.target.value })}
-              placeholder={hasProduct ? 'Booking Address - City' : 'City'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-2"
-            />
-            <input
-              type="text"
-              value={shippingAddress.state}
-              onChange={(e) => setShippingAddress({ ...shippingAddress, state: e.target.value })}
-              placeholder={hasProduct ? 'Booking Address - State' : 'State'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-2"
-            />
-            <input
-              type="text"
-              value={shippingAddress.postal_code}
-              onChange={(e) => setShippingAddress({ ...shippingAddress, postal_code: e.target.value })}
-              placeholder={hasProduct ? 'Booking Address - Postal Code' : 'Postal Code'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-2"
-            />
-            <input
-              type="text"
-              value={shippingAddress.country}
-              onChange={(e) => setShippingAddress({ ...shippingAddress, country: e.target.value })}
-              placeholder={hasProduct ? 'Booking Address - Country' : 'Country'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg mb-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Discount</label>
-            <div className="flex space-x-2 items-center">
-              <label>
-                <input
-                  type="radio"
-                  checked={!isDiscountPercentage}
-                  onChange={() => {
-                    setIsDiscountPercentage(false);
-                    setDiscountPercentage(0); // Reset percentage when switching to dollar
-                  }}
-                  className="mr-1"
-                />
-                Dollar
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  checked={isDiscountPercentage}
-                  onChange={() => {
-                    setIsDiscountPercentage(true);
-                    setDiscountAmount(0); // Reset amount when switching to percentage
-                  }}
-                  className="mr-1 ml-2"
-                />
-                Percentage
-              </label>
-              <input
-                type="number"
-                value={isDiscountPercentage ? discountPercentage : discountAmount / 100 || 0}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value, 10) || 0;
-                  if (isDiscountPercentage) setDiscountPercentage(value);
-                  else setDiscountAmount(value * 100);
-                }}
-                placeholder={isDiscountPercentage ? 'Percentage (%)' : 'Amount ($)'}
-                className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Deposit</label>
-            <input
-              type="number"
-              value={depositPercentage}
-              onChange={(e) => setDepositPercentage(parseInt(e.target.value, 10) || 0)}
-              placeholder="Percentage (%)"
-              className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg"
-            />
-          </div>
-          <div>
-            <p className="text-sm font-medium">Subtotal: ${(calculateTotal() / 100).toFixed(2)}</p>
-            <p className="text-sm font-medium">Deposit: ${(calculateDeposit() / 100).toFixed(2)}</p>
-            <p className="text-sm font-medium">Total: ${((calculateTotal() - calculateDeposit()) / 100).toFixed(2)}</p>
-          </div>
-          <button onClick={handleSaveInvoice} className="px-4 py-2 bg-blue-600 text-white rounded-lg">
-            <Save className="h-4 w-4 mr-2" /> Save Invoice
-          </button>
-        </div>
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <h2 className="text-lg font-semibold text-gray-900">Existing Invoices</h2>
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Couple/Vendor</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid At</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {filteredInvoices.map(invoice => (
-              <tr key={invoice.id}>
-                <td className="px-6 py-4 whitespace-nowrap">{invoice.id}</td>
-                <td className="px-6 py-4 whitespace-nowrap">{invoice.couple_id ? `${invoice.couples.partner1_name} ${invoice.couples.partner2_name || ''}` : invoice.vendors?.name || 'N/A'}</td>
-                <td className="px-6 py-4 whitespace-nowrap">${(invoice.total_amount / 100).toFixed(2)}</td>
-                <td className="px-6 py-4 whitespace-nowrap">{invoice.status}</td>
-                <td className="px-6 py-4 whitespace-nowrap">{invoice.paid_at ? new Date(invoice.paid_at).toLocaleDateString() : 'N/A'}</td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <Link to={`/dashboard/invoices/${invoice.id}`} className="inline-flex items-center px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 mr-2">
-                    <Eye className="h-4 w-4 mr-2" /> View/Edit
-                  </Link>
-                  {invoice.status !== 'paid' && (
+    );
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto p-6 space-y-8">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold text-gray-900 flex items-center">
+          <Calendar className="h-8 w-8 text-blue-600 mr-3" />
+          Invoices
+        </h1>
+        <button
+          onClick={() => setShowCreateForm(!showCreateForm)}
+          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          {showCreateForm ? 'Hide Form' : 'Create Invoice'}
+        </button>
+      </div>
+
+      {showCreateForm && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Create New Invoice</h2>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Select Couple</label>
+                <select
+                  value={selectedCoupleId || ''}
+                  onChange={(e) => setSelectedCoupleId(e.target.value || null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a couple</option>
+                  {couples.map(couple => (
+                    <option key={couple.id} value={couple.id}>
+                      {couple.partner1_name} {couple.partner2_name || ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Select Vendor</label>
+                <select
+                  value={selectedVendorId || ''}
+                  onChange={(e) => setSelectedVendorId(e.target.value || null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a vendor</option>
+                  {vendors.map(vendor => (
+                    <option key={vendor.id} value={vendor.id}>{vendor.name} ({vendor.email})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Line Items</h3>
+              {lineItems.map((item, index) => (
+                <div key={index} className="flex items-center space-x-4 mb-4 p-4 bg-gray-50 rounded-lg">
+                  <select
+                    value={item.type}
+                    onChange={(e) => updateLineItem(index, 'type', e.target.value)}
+                    className="w-1/4 px-3 py-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="service_package">Service Package</option>
+                    <option value="store_product">Store Product</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  {item.type === 'service_package' && (
+                    <select
+                      value={item.service_package_id || ''}
+                      onChange={(e) => updateLineItem(index, 'service_package_id', e.target.value)}
+                      className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg"
+                    >
+                      <option value="">Select Package</option>
+                      {servicePackages.map(pkg => (
+                        <option key={pkg.id} value={pkg.id}>{pkg.name} (${(pkg.price / 100).toFixed(2)})</option>
+                      ))}
+                    </select>
+                  )}
+                  {item.type === 'store_product' && (
+                    <select
+                      value={item.store_product_id || ''}
+                      onChange={(e) => updateLineItem(index, 'store_product_id', e.target.value)}
+                      className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg"
+                    >
+                      <option value="">Select Product</option>
+                      {storeProducts.map(product => (
+                        <option key={product.id} value={product.id}>{product.name} (${(product.price / 100).toFixed(2)})</option>
+                      ))}
+                    </select>
+                  )}
+                  {item.type === 'custom' && (
                     <>
-                      <button onClick={() => handleStripePayment()} className="inline-flex items-center px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 mr-2">
-                        <Save className="h-4 w-4 mr-2" /> Pay with Card
-                      </button>
-                      <button onClick={() => handleCreatePaymentLink()} className="inline-flex items-center px-3 py-1 bg-purple-600 text-white rounded-md hover:bg-purple-700">
-                        <Plus className="h-4 w-4 mr-2" /> Create Payment Link
-                      </button>
+                      <input
+                        type="text"
+                        value={item.custom_description || ''}
+                        onChange={(e) => updateLineItem(index, 'custom_description', e.target.value)}
+                        placeholder="Description"
+                        className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg"
+                      />
+                      <input
+                        type="number"
+                        value={item.custom_price / 100 || 0}
+                        onChange={(e) => updateLineItem(index, 'custom_price', parseInt(e.target.value, 10) * 100 || 0)}
+                        placeholder="Price ($)"
+                        className="w-1/6 px-3 py-2 border border-gray-300 rounded-lg"
+                      />
                     </>
                   )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  <input
+                    type="number"
+                    value={item.quantity}
+                    onChange={(e) => updateLineItem(index, 'quantity', parseInt(e.target.value, 10) || 1)}
+                    placeholder="Qty"
+                    className="w-1/6 px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                  <button
+                    onClick={() => removeLineItem(index)}
+                    className="px-2 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={addLineItem}
+                className="mt-2 inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                <Plus className="h-4 w-4 mr-2" /> Add Line Item
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Discount</label>
+                <div className="flex items-center space-x-4">
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      checked={!isDiscountPercentage}
+                      onChange={() => {
+                        setIsDiscountPercentage(false);
+                        setDiscountPercentage(0);
+                      }}
+                      className="mr-1"
+                    />
+                    Dollar
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      checked={isDiscountPercentage}
+                      onChange={() => {
+                        setIsDiscountPercentage(true);
+                        setDiscountAmount(0);
+                      }}
+                      className="mr-1"
+                    />
+                    Percentage
+                  </label>
+                  <input
+                    type="number"
+                    value={isDiscountPercentage ? discountPercentage : discountAmount / 100 || 0}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value, 10) || 0;
+                      if (isDiscountPercentage) setDiscountPercentage(value);
+                      else setDiscountAmount(value * 100);
+                    }}
+                    placeholder={isDiscountPercentage ? 'Percentage (%)' : 'Amount ($)'}
+                    className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Deposit</label>
+                <input
+                  type="number"
+                  value={depositPercentage}
+                  onChange={(e) => setDepositPercentage(parseInt(e.target.value, 10) || 0)}
+                  placeholder="Percentage (%)"
+                  className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div className="bg-gray-50 p-4 rounded-lg mt-4">
+              <p className="text-sm font-medium">Subtotal: ${(calculateTotal() / 100).toFixed(2)}</p>
+              <p className="text-sm font-medium">Deposit: ${(calculateDeposit() / 100).toFixed(2)}</p>
+              <p className="text-sm font-medium text-gray-900">Total Due: ${((calculateTotal() - calculateDeposit()) / 100).toFixed(2)}</p>
+            </div>
+
+            <button
+              onClick={handleSaveInvoice}
+              className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              <Plus className="h-4 w-4 mr-2" /> Create Invoice
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold text-gray-900">Existing Invoices ({filteredInvoices.length})</h2>
+          <div className="relative w-full max-w-xs">
+            <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search invoices..."
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+        {filteredInvoices.length === 0 ? (
+          <div className="text-center py-12">
+            <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No invoices found</h3>
+            <p className="text-gray-500">Create a new invoice to get started.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Couple</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredInvoices.map(invoice => (
+                  <tr key={invoice.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{invoice.id}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {invoice.couples ? `${invoice.couples.partner1_name} ${invoice.couples.partner2_name || ''}` : 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{invoice.vendors?.name || 'N/A'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${(invoice.total_amount / 100).toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${(invoice.remaining_balance / 100).toFixed(2)}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          invoice.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                        }`}
+                      >
+                        {invoice.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <Link
+                        to={`/dashboard/invoices/${invoice.id}`}
+                        className="inline-flex items-center px-2 py-1 text-xs font-medium text-blue-600 hover:text-blue-800 mr-2"
+                      >
+                        <Eye className="h-4 w-4 mr-1" /> View
+                      </Link>
+                      {invoice.status !== 'paid' && invoice.payment_token && (
+                        <>
+                          <button
+                            onClick={() => copyInvoiceLink(invoice.payment_token!)}
+                            className="inline-flex items-center px-2 py-1 text-xs font-medium text-purple-600 hover:text-purple-800 mr-2"
+                          >
+                            <Copy className="h-4 w-4 mr-1" /> Copy Link
+                          </button>
+                          <button
+                            onClick={() => sendInvoiceEmail(invoice)}
+                            className="inline-flex items-center px-2 py-1 text-xs font-medium text-purple-600 hover:text-purple-800"
+                          >
+                            <Mail className="h-4 w-4 mr-1" /> Send Email
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

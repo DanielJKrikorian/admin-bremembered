@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { supabase } from '../lib/supabase';
-import { Calendar, Plus, Trash2, Search } from 'lucide-react';
+import { Calendar, Plus, Trash2, Search, Eye } from 'lucide-react'; // Added Eye import
 import toast from 'react-hot-toast';
 
 interface Couple {
@@ -245,7 +245,7 @@ export default function InvoicePage() {
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
-      // Update status to 'sent' after emailing
+      // Update status to 'sent'
       const { error: updateError } = await supabase
         .from('invoices')
         .update({ status: 'sent' })

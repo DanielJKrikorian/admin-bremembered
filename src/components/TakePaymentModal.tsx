@@ -35,8 +35,10 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetchInvoices();
-  }, []);
+    if (isOpen) {
+      fetchInvoices();
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen && stripePromise && cardElementDivRef.current) {
@@ -85,6 +87,7 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
 
   const fetchInvoices = async () => {
     try {
+      console.log('[TakePaymentModal] Fetching pending invoices');
       const { data: invoicesData, error } = await supabase
         .from('invoices')
         .select(`
@@ -94,11 +97,16 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
           remaining_balance,
           couples(name),
           vendors(name),
-          invoice_line_items(service_packages(name))
+          invoice_line_items(service_package_id, service_packages(name))
         `)
         .eq('status', 'pending');
 
-      if (error) throw error;
+      if (error) {
+        console.error('[TakePaymentModal] Supabase error:', error);
+        throw error;
+      }
+
+      console.log('[TakePaymentModal] Invoices data:', invoicesData);
 
       const invoicesWithDetails = invoicesData.map((invoice) => ({
         id: invoice.id,
@@ -108,10 +116,11 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
         remaining_balance: invoice.remaining_balance || 0,
       }));
 
+      console.log('[TakePaymentModal] Processed invoices:', invoicesWithDetails);
       setInvoices(invoicesWithDetails);
     } catch (error: any) {
-      console.error('Error fetching invoices:', error);
-      toast.error('Failed to load invoices');
+      console.error('[TakePaymentModal] Error fetching invoices:', error);
+      toast.error('Failed to load invoices: ' + error.message);
     }
   };
 
@@ -150,7 +159,7 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
 
       if (functionError) throw functionError;
 
-      const { paymentIntentId, client_secret } = data;
+      const { client_secret } = data;
       const stripeInstance = await stripePromise;
 
       const { error: confirmError, paymentIntent } = await stripeInstance!.confirmCardPayment(client_secret, {
@@ -170,7 +179,7 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
         throw new Error('Payment failed to confirm');
       }
     } catch (error: any) {
-      console.error('Error processing payment:', error);
+      console.error('[TakePaymentModal] Error processing payment:', error);
       toast.error(error.message || 'Failed to process payment');
     } finally {
       setLoading(false);
@@ -267,7 +276,7 @@ export default function TakePaymentModal({ isOpen, onClose, onPaymentTaken }: Ta
                       <button
                         type="submit"
                         disabled={loading || !selectedInvoice || amount <= 0 || !cardElementRef.current}
-                        className="inline-flex justify-center px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-500 disabled:bg-green-400 disabled:cursor-not-allowed"
+                        className="inline-flex justify-center px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500 disabled:bg-blue-400 disabled:cursor-not-allowed"
                       >
                         {loading ? (
                           <>

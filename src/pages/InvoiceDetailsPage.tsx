@@ -306,7 +306,7 @@ export default function InvoiceDetailsPage() {
           <div>
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Invoice Summary</h2>
             <div className="space-y-2">
-              <p><strong>Status:</strong> <span className={`px-2 py-1 text-xs font-medium rounded-full ${invoice.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{invoice.status}</span></p>
+              <p><strong>Status:</strong> <span className={`px-2 py-1 text-xs font-medium rounded-full ${invoice.status === 'paid' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}`}>{invoice.status}</span></p>
               <p><strong>Total Amount:</strong> ${(invoice.total_amount / 100).toFixed(2)}</p>
               <p><strong>Remaining Balance:</strong> ${(invoice.remaining_balance / 100).toFixed(2)}</p>
               {invoice.paid_at && <p><strong>Paid At:</strong> {new Date(invoice.paid_at).toLocaleDateString()}</p>}
@@ -348,19 +348,19 @@ export default function InvoiceDetailsPage() {
               <div className="flex space-x-2 mt-4">
                 <button
                   onClick={() => setIsPaymentModalOpen(true)}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
                   <Plus className="h-4 w-4 mr-2 inline" /> Take Payment
                 </button>
                 <button
                   onClick={copyInvoiceLink}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-800"
+                  className="px-4 py-2 border border-blue-600 text-blue-600 bg-white rounded-lg hover:bg-blue-50"
                 >
                   <Copy className="h-4 w-4 mr-2 inline" /> Copy Payment Link
                 </button>
                 <button
                   onClick={sendInvoiceEmail}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-800"
+                  className="px-4 py-2 border border-blue-600 text-blue-600 bg-white rounded-lg hover:bg-blue-50"
                 >
                   <Mail className="h-4 w-4 mr-2 inline" /> Send Email
                 </button>
@@ -402,7 +402,7 @@ export default function InvoiceDetailsPage() {
                 >
                   <option value="">Select Product</option>
                   {storeProducts.map(product => (
-                    <option key={product.id} value={product.id}>{product.name} (${(product.price / 100).toFixed(2)})</option>
+                    <option key={product.id} value={product.id}>{pkg.name} (${(product.price / 100).toFixed(2)})</option>
                   ))}
                 </select>
               )}
@@ -441,7 +441,7 @@ export default function InvoiceDetailsPage() {
           ))}
           <button
             onClick={() => addLineItem('custom')}
-            className="mt-2 inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+            className="mt-2 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
           >
             <Plus className="h-4 w-4 mr-2" /> Add Line Item
           </button>
@@ -518,8 +518,6 @@ export default function InvoiceDetailsPage() {
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
         onPaymentTaken={fetchInvoice}
-        invoiceId={invoice.id}
-        amount={invoice.remaining_balance / 100}
       />
     </div>
   );

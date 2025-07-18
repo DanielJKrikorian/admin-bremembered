@@ -3,19 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { Calendar, Plus, Upload, Check, Filter } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
+import Select from 'react-select';
 
 interface JobBoard {
   id: string;
   job_type: string;
   description: string;
-  couple_id: string;
+  couple_id: string | null;
   is_open: boolean;
   created_at: string;
   updated_at: string | null;
-  price: number;
+  price: number | null;
   service_package_id: string;
   vendor_id: string | null;
   event_start_time: string | null;
+  event_end_time: string | null;
   couple_name: string | null;
   service_package_name: string | null;
   vendor_name: string | null;
@@ -37,6 +39,9 @@ interface ServicePackage {
 interface Venue {
   id: string;
   name: string;
+  venue_city: string | null;
+  state: string;
+  region: string | null;
 }
 
 interface Vendor {
@@ -63,6 +68,7 @@ export default function JobBoardPage() {
     service_package_id: '',
     venue_id: '',
     event_start_time: '',
+    event_end_time: '',
   });
   const navigate = useNavigate();
 
@@ -73,7 +79,7 @@ export default function JobBoardPage() {
         supabase.from('job_board').select('*').order('created_at', { ascending: false }),
         supabase.from('couples').select('id, name, wedding_date'),
         supabase.from('service_packages').select('id, name, price, description'),
-        supabase.from('venues').select('id, name'),
+        supabase.from('venues').select('id, name, venue_city, state, region'),
         supabase.from('vendors').select('id, name'),
       ]);
 
@@ -115,10 +121,28 @@ export default function JobBoardPage() {
   const handleAddJob = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      // Convert event_start_time to ISO string for timestamptz
+      // Validate required fields
+      if (!newJob.service_package_id) {
+        toast.error('Service Package is required');
+        return;
+      }
+      if (!newJob.venue_id) {
+        toast.error('Venue is required');
+        return;
+      }
+      if (!newJob.job_type) {
+        toast.error('Job Type is required');
+        return;
+      }
+
+      // Convert event_start_time and event_end_time to time format (HH:mm:ss)
       let formattedEventStartTime = null;
       if (newJob.event_start_time) {
-        formattedEventStartTime = new Date(newJob.event_start_time).toISOString();
+        formattedEventStartTime = new Date(newJob.event_start_time).toISOString().slice(11, 19); // Extract HH:mm:ss
+      }
+      let formattedEventEndTime = null;
+      if (newJob.event_end_time) {
+        formattedEventEndTime = new Date(newJob.event_end_time).toISOString().slice(11, 19); // Extract HH:mm:ss
       }
 
       const { error } = await supabase
@@ -126,15 +150,17 @@ export default function JobBoardPage() {
         .insert({
           id: crypto.randomUUID(),
           job_type: newJob.job_type,
-          description: newJob.description,
-          couple_id: newJob.couple_id,
+          description: newJob.description || null,
+          couple_id: newJob.couple_id || null,
           is_open: true,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          price: newJob.price * 100,
+          price: newJob.price ? newJob.price * 100 : null,
           service_package_id: newJob.service_package_id,
           vendor_id: null,
+          venue_id: newJob.venue_id || null,
           event_start_time: formattedEventStartTime,
+          event_end_time: formattedEventEndTime,
         });
       if (error) throw error;
 
@@ -148,11 +174,12 @@ export default function JobBoardPage() {
         service_package_id: '',
         venue_id: '',
         event_start_time: '',
+        event_end_time: '',
       });
       fetchData();
     } catch (error: any) {
       console.error('Error adding job:', error);
-      toast.error('Failed to add job');
+      toast.error(`Failed to add job: ${error.message}`);
     }
   };
 
@@ -162,24 +189,30 @@ export default function JobBoardPage() {
 
     try {
       const text = await file.text();
-      const rows = text.trim().split('\n').map(row => row.split(',')); // Assuming CSV format: job_type,description,couple_id,price,service_package_id,event_start_time
+      const rows = text.trim().split('\n').map(row => row.split(',')); // Assuming CSV format: job_type,description,couple_id,price,service_package_id,venue_id,event_start_time,event_end_time
       const jobsToInsert = rows.map(row => {
         let formattedEventStartTime = null;
-        if (row[5]) {
-          formattedEventStartTime = new Date(row[5]).toISOString(); // Expecting YYYY-MM-DDTHH:mm format
+        if (row[6]) {
+          formattedEventStartTime = new Date(row[6]).toISOString().slice(11, 19); // Extract HH:mm:ss
+        }
+        let formattedEventEndTime = null;
+        if (row[7]) {
+          formattedEventEndTime = new Date(row[7]).toISOString().slice(11, 19); // Extract HH:mm:ss
         }
         return {
           id: crypto.randomUUID(),
           job_type: row[0],
-          description: row[1],
-          couple_id: row[2],
+          description: row[1] || null,
+          couple_id: row[2] || null,
           is_open: true,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          price: parseFloat(row[3]) * 100 || 0,
+          price: parseFloat(row[3]) * 100 || null,
           service_package_id: row[4],
           vendor_id: null,
+          venue_id: row[5] || null,
           event_start_time: formattedEventStartTime,
+          event_end_time: formattedEventEndTime,
         };
       });
 
@@ -209,8 +242,25 @@ export default function JobBoardPage() {
     const selectedId = e.target.value;
     setNewJob(prev => {
       const selectedCouple = couples.find(c => c.id === selectedId);
-      return { ...prev, couple_id: selectedId, event_start_time: selectedCouple ? selectedCouple.wedding_date : '' };
+      return {
+        ...prev,
+        couple_id: selectedId,
+        event_start_time: selectedCouple ? selectedCouple.wedding_date : '',
+      };
     });
+  };
+
+  // Format venues for react-select
+  const venueOptions = venues.map(venue => ({
+    value: venue.id,
+    label: `${venue.name} (${venue.venue_city || 'N/A'}, ${venue.state}${venue.region ? `, ${venue.region}` : ''})`,
+  }));
+
+  const handleVenueChange = (selectedOption: any) => {
+    setNewJob(prev => ({
+      ...prev,
+      venue_id: selectedOption ? selectedOption.value : '',
+    }));
   };
 
   if (loading) {
@@ -305,7 +355,7 @@ export default function JobBoardPage() {
                     <tr key={job.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/dashboard/job-board/${job.id}`)}>
                       <td className="px-6 py-4 whitespace-nowrap">{job.job_type}</td>
                       <td className="px-6 py-4 whitespace-nowrap">{job.couple_name}</td>
-                      <td className="px-6 py-4 whitespace-nowrap">${(job.price / 100).toFixed(2)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">${(job.price ? job.price / 100 : 0).toFixed(2)}</td>
                       <td className="px-6 py-4 whitespace-nowrap">{job.service_package_name}</td>
                       <td className="px-6 py-4 whitespace-nowrap">{job.vendor_name || 'Not Taken'}</td>
                       <td className="px-6 py-4 whitespace-nowrap">{job.is_open ? 'Open' : 'Taken'}</td>
@@ -355,7 +405,6 @@ export default function JobBoardPage() {
                   value={newJob.description}
                   onChange={(e) => setNewJob({ ...newJob, description: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-24"
-                  required
                 />
               </div>
               <div>
@@ -365,9 +414,8 @@ export default function JobBoardPage() {
                   value={newJob.couple_id}
                   onChange={handleCoupleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
                 >
-                  <option value="">Select a couple</option>
+                  <option value="">Select a couple (optional)</option>
                   {couples.map(couple => (
                     <option key={couple.id} value={couple.id}>{couple.name}</option>
                   ))}
@@ -376,22 +424,32 @@ export default function JobBoardPage() {
               <div>
                 <label htmlFor="event_start_time" className="block text-sm font-medium text-gray-700">Event Start Time</label>
                 <input
-                  type="datetime-local"
+                  type="time"
                   id="event_start_time"
                   value={newJob.event_start_time || ''}
                   onChange={(e) => setNewJob({ ...newJob, event_start_time: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
                 />
               </div>
               <div>
-                <label htmlFor="price" className="block text-sm font-medium text-gray-700">Price</label>
+                <label htmlFor="event_end_time" className="block text-sm font-medium text-gray-700">Event End Time</label>
                 <input
-                  type="text"
+                  type="time"
+                  id="event_end_time"
+                  value={newJob.event_end_time || ''}
+                  onChange={(e) => setNewJob({ ...newJob, event_end_time: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="price" className="block text-sm font-medium text-gray-700">Price (USD)</label>
+                <input
+                  type="number"
                   id="price"
-                  value={`$${newJob.price.toFixed(2)}`}
-                  readOnly
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 focus:outline-none"
+                  value={newJob.price}
+                  onChange={(e) => setNewJob({ ...newJob, price: parseFloat(e.target.value) || 0 })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  step="0.01"
                 />
               </div>
               <div>
@@ -411,18 +469,16 @@ export default function JobBoardPage() {
               </div>
               <div>
                 <label htmlFor="venue_id" className="block text-sm font-medium text-gray-700">Venue</label>
-                <select
+                <Select
                   id="venue_id"
-                  value={newJob.venue_id}
-                  onChange={(e) => setNewJob({ ...newJob, venue_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                >
-                  <option value="">Select a venue</option>
-                  {venues.map(venue => (
-                    <option key={venue.id} value={venue.id}>{venue.name}</option>
-                  ))}
-                </select>
+                  options={venueOptions}
+                  value={venueOptions.find(option => option.value === newJob.venue_id) || null}
+                  onChange={handleVenueChange}
+                  placeholder="Search for a venue..."
+                  isClearable
+                  isSearchable
+                  className="w-full"
+                />
               </div>
               <div className="flex justify-end space-x-2">
                 <button

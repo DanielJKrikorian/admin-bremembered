@@ -8,14 +8,15 @@ import Select from 'react-select';
 interface JobBoard {
   id: string;
   job_type: string;
-  description: string;
-  couple_id: string | null;
+  description: string | null;
+  couple_id: string;
   is_open: boolean;
   created_at: string;
   updated_at: string | null;
   price: number | null;
   service_package_id: string;
   vendor_id: string | null;
+  venue_id: string | null;
   event_start_time: string | null;
   event_end_time: string | null;
   couple_name: string | null;
@@ -26,7 +27,7 @@ interface JobBoard {
 interface Couple {
   id: string;
   name: string;
-  wedding_date: string;
+  wedding_date: string | null;
 }
 
 interface ServicePackage {
@@ -75,7 +76,13 @@ export default function JobBoardPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [jobsResponse, couplesResponse, packagesResponse, venuesResponse, vendorsResponse] = await Promise.all([
+      const [
+        jobsResponse,
+        couplesResponse,
+        packagesResponse,
+        venuesResponse,
+        vendorsResponse
+      ] = await Promise.all([
         supabase.from('job_board').select('*').order('created_at', { ascending: false }),
         supabase.from('couples').select('id, name, wedding_date'),
         supabase.from('service_packages').select('id, name, price, description'),
@@ -83,11 +90,26 @@ export default function JobBoardPage() {
         supabase.from('vendors').select('id, name'),
       ]);
 
-      if (jobsResponse.error) throw jobsResponse.error;
-      if (couplesResponse.error) throw couplesResponse.error;
-      if (packagesResponse.error) throw packagesResponse.error;
-      if (venuesResponse.error) throw venuesResponse.error;
-      if (vendorsResponse.error) throw vendorsResponse.error;
+      if (jobsResponse.error) {
+        console.error('Jobs fetch error:', jobsResponse.error);
+        throw new Error(`Failed to fetch jobs: ${jobsResponse.error.message}`);
+      }
+      if (couplesResponse.error) {
+        console.error('Couples fetch error:', couplesResponse.error);
+        throw new Error(`Failed to fetch couples: ${couplesResponse.error.message}`);
+      }
+      if (packagesResponse.error) {
+        console.error('Packages fetch error:', packagesResponse.error);
+        throw new Error(`Failed to fetch service packages: ${packagesResponse.error.message}`);
+      }
+      if (venuesResponse.error) {
+        console.error('Venues fetch error:', venuesResponse.error);
+        throw new Error(`Failed to fetch venues: ${venuesResponse.error.message}`);
+      }
+      if (vendorsResponse.error) {
+        console.error('Vendors fetch error:', vendorsResponse.error);
+        throw new Error(`Failed to fetch vendors: ${vendorsResponse.error.message}`);
+      }
 
       const mappedJobs = jobsResponse.data.map(job => {
         const couple = couplesResponse.data.find(c => c.id === job.couple_id);
@@ -108,7 +130,7 @@ export default function JobBoardPage() {
       setOpenJobsCount(mappedJobs.filter(job => job.is_open).length);
     } catch (error: any) {
       console.error('Error fetching job board data:', error);
-      toast.error('Failed to load job board');
+      toast.error(error.message || 'Failed to load job board');
     } finally {
       setLoading(false);
     }
@@ -122,6 +144,10 @@ export default function JobBoardPage() {
     e.preventDefault();
     try {
       // Validate required fields
+      if (!newJob.job_type) {
+        toast.error('Job Type is required');
+        return;
+      }
       if (!newJob.service_package_id) {
         toast.error('Service Package is required');
         return;
@@ -130,19 +156,20 @@ export default function JobBoardPage() {
         toast.error('Venue is required');
         return;
       }
-      if (!newJob.job_type) {
-        toast.error('Job Type is required');
+      if (!newJob.couple_id) {
+        toast.error('Couple is required');
         return;
       }
 
-      // Convert event_start_time and event_end_time to time format (HH:mm:ss)
+      // Convert event_start_time to ISO timestamp
       let formattedEventStartTime = null;
       if (newJob.event_start_time) {
-        formattedEventStartTime = new Date(newJob.event_start_time).toISOString().slice(11, 19); // Extract HH:mm:ss
+        formattedEventStartTime = new Date(newJob.event_start_time).toISOString();
       }
+      // Convert event_end_time to HH:mm:ss
       let formattedEventEndTime = null;
       if (newJob.event_end_time) {
-        formattedEventEndTime = new Date(newJob.event_end_time).toISOString().slice(11, 19); // Extract HH:mm:ss
+        formattedEventEndTime = new Date(`1970-01-01T${newJob.event_end_time}`).toISOString().slice(11, 19);
       }
 
       const { error } = await supabase
@@ -151,14 +178,14 @@ export default function JobBoardPage() {
           id: crypto.randomUUID(),
           job_type: newJob.job_type,
           description: newJob.description || null,
-          couple_id: newJob.couple_id || null,
+          couple_id: newJob.couple_id,
           is_open: true,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           price: newJob.price ? newJob.price * 100 : null,
           service_package_id: newJob.service_package_id,
           vendor_id: null,
-          venue_id: newJob.venue_id || null,
+          venue_id: newJob.venue_id,
           event_start_time: formattedEventStartTime,
           event_end_time: formattedEventEndTime,
         });
@@ -189,21 +216,21 @@ export default function JobBoardPage() {
 
     try {
       const text = await file.text();
-      const rows = text.trim().split('\n').map(row => row.split(',')); // Assuming CSV format: job_type,description,couple_id,price,service_package_id,venue_id,event_start_time,event_end_time
+      const rows = text.trim().split('\n').map(row => row.split(',')); // CSV format: job_type,description,couple_id,price,service_package_id,venue_id,event_start_time,event_end_time
       const jobsToInsert = rows.map(row => {
         let formattedEventStartTime = null;
         if (row[6]) {
-          formattedEventStartTime = new Date(row[6]).toISOString().slice(11, 19); // Extract HH:mm:ss
+          formattedEventStartTime = new Date(row[6]).toISOString();
         }
         let formattedEventEndTime = null;
         if (row[7]) {
-          formattedEventEndTime = new Date(row[7]).toISOString().slice(11, 19); // Extract HH:mm:ss
+          formattedEventEndTime = new Date(`1970-01-01T${row[7]}`).toISOString().slice(11, 19);
         }
         return {
           id: crypto.randomUUID(),
           job_type: row[0],
           description: row[1] || null,
-          couple_id: row[2] || null,
+          couple_id: row[2],
           is_open: true,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
@@ -216,6 +243,13 @@ export default function JobBoardPage() {
         };
       });
 
+      // Validate required fields for each job
+      for (const job of jobsToInsert) {
+        if (!job.couple_id || !job.job_type || !job.service_package_id || !job.venue_id) {
+          throw new Error('All jobs must include job_type, couple_id, service_package_id, and venue_id');
+        }
+      }
+
       const { error } = await supabase.from('job_board').insert(jobsToInsert);
       if (error) throw error;
 
@@ -224,7 +258,7 @@ export default function JobBoardPage() {
       fetchData();
     } catch (error: any) {
       console.error('Error importing jobs:', error);
-      toast.error('Failed to import jobs');
+      toast.error(`Failed to import jobs: ${error.message}`);
     }
   };
 
@@ -245,12 +279,11 @@ export default function JobBoardPage() {
       return {
         ...prev,
         couple_id: selectedId,
-        event_start_time: selectedCouple ? selectedCouple.wedding_date : '',
+        event_start_time: selectedCouple && selectedCouple.wedding_date ? selectedCouple.wedding_date : '',
       };
     });
   };
 
-  // Format venues for react-select
   const venueOptions = venues.map(venue => ({
     value: venue.id,
     label: `${venue.name} (${venue.venue_city || 'N/A'}, ${venue.state}${venue.region ? `, ${venue.region}` : ''})`,
@@ -414,8 +447,9 @@ export default function JobBoardPage() {
                   value={newJob.couple_id}
                   onChange={handleCoupleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
                 >
-                  <option value="">Select a couple (optional)</option>
+                  <option value="">Select a couple</option>
                   {couples.map(couple => (
                     <option key={couple.id} value={couple.id}>{couple.name}</option>
                   ))}
@@ -424,7 +458,7 @@ export default function JobBoardPage() {
               <div>
                 <label htmlFor="event_start_time" className="block text-sm font-medium text-gray-700">Event Start Time</label>
                 <input
-                  type="time"
+                  type="datetime-local"
                   id="event_start_time"
                   value={newJob.event_start_time || ''}
                   onChange={(e) => setNewJob({ ...newJob, event_start_time: e.target.value })}

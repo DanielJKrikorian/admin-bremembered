@@ -117,6 +117,12 @@ export default function JobBoardPage() {
   const handleAddJob = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Combine event_date and event_start_time into a valid timestamptz format
+      let formattedEventStartTime = null;
+      if (newJob.event_date && newJob.event_start_time) {
+        formattedEventStartTime = `${newJob.event_date}T${newJob.event_start_time}:00+00`;
+      }
+
       const { error } = await supabase
         .from('job_board')
         .insert({
@@ -130,8 +136,8 @@ export default function JobBoardPage() {
           price: newJob.price * 100,
           service_package_id: newJob.service_package_id,
           vendor_id: null,
-          event_date: newJob.event_date,
-          event_start_time: newJob.event_start_time,
+          event_date: newJob.event_date || null,
+          event_start_time: formattedEventStartTime,
         });
       if (error) throw error;
 
@@ -161,20 +167,26 @@ export default function JobBoardPage() {
     try {
       const text = await file.text();
       const rows = text.trim().split('\n').map(row => row.split(',')); // Assuming CSV format: job_type,description,couple_id,price,service_package_id,event_date,event_start_time
-      const jobsToInsert = rows.map(row => ({
-        id: crypto.randomUUID(),
-        job_type: row[0],
-        description: row[1],
-        couple_id: row[2],
-        is_open: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        price: parseFloat(row[3]) * 100 || 0,
-        service_package_id: row[4],
-        vendor_id: null,
-        event_date: row[5] || null,
-        event_start_time: row[6] || null,
-      }));
+      const jobsToInsert = rows.map(row => {
+        let formattedEventStartTime = null;
+        if (row[5] && row[6]) {
+          formattedEventStartTime = `${row[5]}T${row[6]}:00+00`; // Combine event_date and event_start_time
+        }
+        return {
+          id: crypto.randomUUID(),
+          job_type: row[0],
+          description: row[1],
+          couple_id: row[2],
+          is_open: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          price: parseFloat(row[3]) * 100 || 0,
+          service_package_id: row[4],
+          vendor_id: null,
+          event_date: row[5] || null,
+          event_start_time: formattedEventStartTime,
+        };
+      });
 
       const { error } = await supabase.from('job_board').insert(jobsToInsert);
       if (error) throw error;
@@ -380,7 +392,7 @@ export default function JobBoardPage() {
               <div>
                 <label htmlFor="event_start_time" className="block text-sm font-medium text-gray-700">Event Start Time</label>
                 <input
-                  type="time" // Changed to time only
+                  type="time"
                   id="event_start_time"
                   value={newJob.event_start_time || ''}
                   onChange={(e) => setNewJob({ ...newJob, event_start_time: e.target.value })}

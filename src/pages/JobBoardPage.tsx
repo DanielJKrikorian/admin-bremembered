@@ -15,7 +15,6 @@ interface JobBoard {
   price: number;
   service_package_id: string;
   vendor_id: string | null;
-  event_date: string | null;
   event_start_time: string | null;
   couple_name: string | null;
   service_package_name: string | null;
@@ -63,7 +62,6 @@ export default function JobBoardPage() {
     price: 0,
     service_package_id: '',
     venue_id: '',
-    event_date: '',
     event_start_time: '',
   });
   const navigate = useNavigate();
@@ -117,10 +115,10 @@ export default function JobBoardPage() {
   const handleAddJob = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      // Combine event_date and event_start_time into a valid timestamptz format
+      // Convert event_start_time to ISO string for timestamptz
       let formattedEventStartTime = null;
-      if (newJob.event_date && newJob.event_start_time) {
-        formattedEventStartTime = `${newJob.event_date}T${newJob.event_start_time}:00+00`;
+      if (newJob.event_start_time) {
+        formattedEventStartTime = new Date(newJob.event_start_time).toISOString();
       }
 
       const { error } = await supabase
@@ -136,7 +134,6 @@ export default function JobBoardPage() {
           price: newJob.price * 100,
           service_package_id: newJob.service_package_id,
           vendor_id: null,
-          event_date: newJob.event_date || null,
           event_start_time: formattedEventStartTime,
         });
       if (error) throw error;
@@ -150,7 +147,6 @@ export default function JobBoardPage() {
         price: 0,
         service_package_id: '',
         venue_id: '',
-        event_date: '',
         event_start_time: '',
       });
       fetchData();
@@ -166,11 +162,11 @@ export default function JobBoardPage() {
 
     try {
       const text = await file.text();
-      const rows = text.trim().split('\n').map(row => row.split(',')); // Assuming CSV format: job_type,description,couple_id,price,service_package_id,event_date,event_start_time
+      const rows = text.trim().split('\n').map(row => row.split(',')); // Assuming CSV format: job_type,description,couple_id,price,service_package_id,event_start_time
       const jobsToInsert = rows.map(row => {
         let formattedEventStartTime = null;
-        if (row[5] && row[6]) {
-          formattedEventStartTime = `${row[5]}T${row[6]}:00+00`; // Combine event_date and event_start_time
+        if (row[5]) {
+          formattedEventStartTime = new Date(row[5]).toISOString(); // Expecting YYYY-MM-DDTHH:mm format
         }
         return {
           id: crypto.randomUUID(),
@@ -183,7 +179,6 @@ export default function JobBoardPage() {
           price: parseFloat(row[3]) * 100 || 0,
           service_package_id: row[4],
           vendor_id: null,
-          event_date: row[5] || null,
           event_start_time: formattedEventStartTime,
         };
       });
@@ -214,7 +209,7 @@ export default function JobBoardPage() {
     const selectedId = e.target.value;
     setNewJob(prev => {
       const selectedCouple = couples.find(c => c.id === selectedId);
-      return { ...prev, couple_id: selectedId, event_date: selectedCouple ? selectedCouple.wedding_date : '' };
+      return { ...prev, couple_id: selectedId, event_start_time: selectedCouple ? selectedCouple.wedding_date : '' };
     });
   };
 
@@ -379,24 +374,14 @@ export default function JobBoardPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="event_date" className="block text-sm font-medium text-gray-700">Event Date</label>
-                <input
-                  type="date"
-                  id="event_date"
-                  value={newJob.event_date}
-                  onChange={(e) => setNewJob({ ...newJob, event_date: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-              <div>
                 <label htmlFor="event_start_time" className="block text-sm font-medium text-gray-700">Event Start Time</label>
                 <input
-                  type="time"
+                  type="datetime-local"
                   id="event_start_time"
                   value={newJob.event_start_time || ''}
                   onChange={(e) => setNewJob({ ...newJob, event_start_time: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
                 />
               </div>
               <div>

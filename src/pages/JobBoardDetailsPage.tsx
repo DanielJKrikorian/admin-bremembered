@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Calendar, Save, Edit, Trash2, ArrowLeft } from 'lucide-react';
+import { Calendar, Save, Trash2, ArrowLeft } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
@@ -52,7 +52,6 @@ export default function JobBoardDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [vendorId, setVendorId] = useState<string | null>(null);
   const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [eventStartTime, setEventStartTime] = useState<string>('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -89,7 +88,6 @@ export default function JobBoardDetailsPage() {
         };
         setJob(mappedJob);
         setVendorId(mappedJob.vendor_id);
-        setEventStartTime(mappedJob.event_start_time || '');
         setVendors(vendorsResponse.data || []);
       } catch (error: any) {
         console.error('Error fetching job details:', error);
@@ -112,7 +110,6 @@ export default function JobBoardDetailsPage() {
           vendor_id: vendorId,
           is_open: !vendorId,
           updated_at: new Date().toISOString(),
-          event_start_time: eventStartTime || null,
         })
         .eq('id', job.id);
       if (error) throw error;
@@ -190,7 +187,7 @@ export default function JobBoardDetailsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Event Start Time</label>
-              <p className="mt-1 text-sm text-gray-900">{job.event_start_time ? new Date(job.event_start_time).toLocaleTimeString() : 'N/A'}</p>
+              <p className="mt-1 text-sm text-gray-900">{job.event_start_time || 'N/A'}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Price</label>
@@ -212,15 +209,6 @@ export default function JobBoardDetailsPage() {
                   <option key={vendor.id} value={vendor.id}>{vendor.name}</option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Event Start Time</label>
-              <input
-                type="time"
-                value={eventStartTime || ''}
-                onChange={(e) => setEventStartTime(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
             </div>
             <div className="flex justify-between space-x-2">
               <button

@@ -16,7 +16,7 @@ interface JobBoard {
   price: number | null;
   service_package_id: string;
   vendor_id: string | null;
-  venue_id: string | null;
+  venue_id: string;
   event_start_time: string | null;
   event_end_time: string | null;
   couple_name: string | null;
@@ -40,7 +40,7 @@ interface ServicePackage {
 interface Venue {
   id: string;
   name: string;
-  venue_city: string | null;
+  city: string | null;
   state: string;
   region: string | null;
 }
@@ -83,33 +83,27 @@ export default function JobBoardPage() {
         venuesResponse,
         vendorsResponse
       ] = await Promise.all([
-        supabase.from('job_board').select('*').order('created_at', { ascending: false }),
-        supabase.from('couples').select('id, name, wedding_date'),
-        supabase.from('service_packages').select('id, name, price, description'),
-        supabase.from('venues').select('id, name, venue_city, state, region'),
-        supabase.from('vendors').select('id, name'),
+        supabase.from('job_board').select('*').order('created_at', { ascending: false }).then(res => {
+          if (res.error) throw new Error(`Jobs fetch error: ${res.error.message}`);
+          return res;
+        }),
+        supabase.from('couples').select('id, name, wedding_date').then(res => {
+          if (res.error) throw new Error(`Couples fetch error: ${res.error.message}`);
+          return res;
+        }),
+        supabase.from('service_packages').select('id, name, price, description').then(res => {
+          if (res.error) throw new Error(`Packages fetch error: ${res.error.message}`);
+          return res;
+        }),
+        supabase.from('venues').select('id, name, city, state, region').then(res => {
+          if (res.error) throw new Error(`Venues fetch error: ${res.error.message}`);
+          return res;
+        }),
+        supabase.from('vendors').select('id, name').then(res => {
+          if (res.error) throw new Error(`Vendors fetch error: ${res.error.message}`);
+          return res;
+        }),
       ]);
-
-      if (jobsResponse.error) {
-        console.error('Jobs fetch error:', jobsResponse.error);
-        throw new Error(`Failed to fetch jobs: ${jobsResponse.error.message}`);
-      }
-      if (couplesResponse.error) {
-        console.error('Couples fetch error:', couplesResponse.error);
-        throw new Error(`Failed to fetch couples: ${couplesResponse.error.message}`);
-      }
-      if (packagesResponse.error) {
-        console.error('Packages fetch error:', packagesResponse.error);
-        throw new Error(`Failed to fetch service packages: ${packagesResponse.error.message}`);
-      }
-      if (venuesResponse.error) {
-        console.error('Venues fetch error:', venuesResponse.error);
-        throw new Error(`Failed to fetch venues: ${venuesResponse.error.message}`);
-      }
-      if (vendorsResponse.error) {
-        console.error('Vendors fetch error:', vendorsResponse.error);
-        throw new Error(`Failed to fetch vendors: ${vendorsResponse.error.message}`);
-      }
 
       const mappedJobs = jobsResponse.data.map(job => {
         const couple = couplesResponse.data.find(c => c.id === job.couple_id);
@@ -130,7 +124,7 @@ export default function JobBoardPage() {
       setOpenJobsCount(mappedJobs.filter(job => job.is_open).length);
     } catch (error: any) {
       console.error('Error fetching job board data:', error);
-      toast.error(error.message || 'Failed to load job board');
+      toast.error(error.message || 'Failed to load job board data');
     } finally {
       setLoading(false);
     }
@@ -237,7 +231,7 @@ export default function JobBoardPage() {
           price: parseFloat(row[3]) * 100 || null,
           service_package_id: row[4],
           vendor_id: null,
-          venue_id: row[5] || null,
+          venue_id: row[5],
           event_start_time: formattedEventStartTime,
           event_end_time: formattedEventEndTime,
         };
@@ -286,7 +280,7 @@ export default function JobBoardPage() {
 
   const venueOptions = venues.map(venue => ({
     value: venue.id,
-    label: `${venue.name} (${venue.venue_city || 'N/A'}, ${venue.state}${venue.region ? `, ${venue.region}` : ''})`,
+    label: `${venue.name} (${venue.city || 'N/A'}, ${venue.state}${venue.region ? `, ${venue.region}` : ''})`,
   }));
 
   const handleVenueChange = (selectedOption: any) => {

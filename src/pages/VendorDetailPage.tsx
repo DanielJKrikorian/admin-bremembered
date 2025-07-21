@@ -715,7 +715,7 @@ export default function VendorDetailPage() {
           )}
         </h1>
         <div className="space-x-2">
-          < bañ
+          <button
             onClick={handleResetPassword}
             className="inline-flex items-center px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
             disabled={!vendor.user_id || !vendorEmail || !isValidEmail(vendorEmail)}
@@ -1203,7 +1203,7 @@ export default function VendorDetailPage() {
                         <button
                           onClick={() => handleUpdatePackageStatus(vendorPackage.id, 'approved')}
                           disabled={updatingPackage === vendorPackage.id}
-                          className="inline-flex items-center px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          className="inline-flex items-center px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                           {updatingPackage === vendorPackage.id ? (
                             <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>

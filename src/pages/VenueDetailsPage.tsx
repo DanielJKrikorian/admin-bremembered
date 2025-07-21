@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Calendar, Edit, Save, Download } from 'lucide-react';
+import Select from 'react-select';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
@@ -15,10 +16,16 @@ interface Venue {
   state: string | null;
   zip: string | null;
   region: string | null;
+  service_area_id: string | null;
   insurance: string | null;
-  booking_count: number; // New field for booking count
+  booking_count: number;
   created_at: string;
   updated_at: string;
+}
+
+interface ServiceArea {
+  id: string;
+  region: string;
 }
 
 // List of U.S. states
@@ -29,9 +36,6 @@ const states = [
   'VA', 'WA', 'WV', 'WI', 'WY'
 ];
 
-// List of regions
-const regions = ['Northeast', 'Southeast', 'Midwest', 'Southwest', 'West', 'Northwest'];
-
 export default function VenueDetailsPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -39,10 +43,12 @@ export default function VenueDetailsPage() {
   const [editMode, setEditMode] = useState<Record<string, boolean>>({});
   const [formData, setFormData] = useState<Venue | null>(null);
   const [insuranceFile, setInsuranceFile] = useState<File | null>(null);
+  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchVenue();
+    fetchServiceAreas();
   }, [id]);
 
   const fetchVenue = async () => {
@@ -52,7 +58,7 @@ export default function VenueDetailsPage() {
 
       const { data, error } = await supabase
         .from('venues')
-        .select('*')
+        .select('*, service_area_id')
         .eq('id', id)
         .single();
 
@@ -69,12 +75,42 @@ export default function VenueDetailsPage() {
     }
   };
 
+  const fetchServiceAreas = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('service_areas')
+        .select('id, region')
+        .order('region', { ascending: true });
+
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
+      if (!data) {
+        console.warn('No service areas found');
+        setServiceAreas([]);
+        return;
+      }
+      setServiceAreas(data);
+    } catch (error) {
+      console.error('Error fetching service areas:', error);
+      toast.error('Failed to load service areas');
+    }
+  };
+
   const handleSaveField = async (field: string) => {
     if (!formData || !venue) return;
 
     setLoading(true);
     try {
-      const updateData = { [field]: formData[field as keyof Venue] };
+      let updateData: Partial<Venue> = { [field]: formData[field as keyof Venue] };
+      if (field === 'service_area') {
+        updateData = {
+          service_area_id: formData.service_area_id,
+          region: formData.region
+        };
+      }
+
       const { error } = await supabase
         .from('venues')
         .update({ ...updateData, updated_at: new Date().toISOString() })
@@ -84,13 +120,23 @@ export default function VenueDetailsPage() {
 
       setVenue(prev => prev ? { ...prev, ...updateData, updated_at: new Date().toISOString() } : null);
       setEditMode(prev => ({ ...prev, [field]: false }));
-      toast.success(`${field} updated successfully!`);
+      toast.success(`${field === 'service_area' ? 'Service Area' : field} updated successfully!`);
+ Lubric
+
     } catch (error: any) {
       console.error(`Error updating ${field}:`, error);
-      toast.error(`Failed to update ${field}`);
+      toast.error(`Failed to update ${field === 'service_area' ? 'Service Area' : field}`);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleServiceAreaChange = (selectedOption: any) => {
+    setFormData(prev => prev ? {
+      ...prev,
+      service_area_id: selectedOption ? selectedOption.value : null,
+      region: selectedOption ? selectedOption.label : null
+    } : null);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,11 +159,10 @@ export default function VenueDetailsPage() {
         });
 
       if (error) {
-        console.log('Upload Error:', error); // Debug log
+        console.log('Upload Error:', error);
         throw error;
       }
 
-      // Get the public URL and update the insurance column
       const { publicUrl } = supabase.storage.from('venue-new').getPublicUrl(fileName);
       await supabase
         .from('venues')
@@ -140,7 +185,7 @@ export default function VenueDetailsPage() {
     if (!venue || !venue.insurance) return;
 
     try {
-      const url = venue.insurance; // Use the stored public URL
+      const url = venue.insurance;
       const a = document.createElement('a');
       a.href = url;
       a.download = `insurance_${venue.id}.pdf`;
@@ -150,6 +195,12 @@ export default function VenueDetailsPage() {
       toast.error('Failed to download insurance PDF');
     }
   };
+
+  // Format service areas for react-select
+  const serviceAreaOptions = serviceAreas.map(area => ({
+    value: area.id,
+    label: area.region
+  }));
 
   if (loading || !venue || !formData) {
     return (
@@ -445,21 +496,20 @@ export default function VenueDetailsPage() {
             )}
           </div>
           <div>
-            <label className="text-sm font-medium text-gray-500">Region</label>
-            {editMode.region ? (
+            <label className="text-sm font-medium text-gray-500">Service Area</label>
+            {editMode.service_area ? (
               <>
-                <select
-                  value={formData.region || ''}
-                  onChange={(e) => setFormData(prev => prev ? { ...prev, region: e.target.value } : null)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select a region</option>
-                  {regions.map(region => (
-                    <option key={region} value={region}>{region}</option>
-                  ))}
-                </select>
+                <Select
+                  value={serviceAreaOptions.find(option => option.value === formData.service_area_id) || null}
+                  options={serviceAreaOptions}
+                  onChange={handleServiceAreaChange}
+                  isClearable
+                  placeholder="Select service area..."
+                  className="w-full"
+                  classNamePrefix="react-select"
+                />
                 <button
-                  onClick={() => handleSaveField('region')}
+                  onClick={() => handleSaveField('service_area')}
                   className="mt-2 inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
                   disabled={loading}
                 >
@@ -471,7 +521,7 @@ export default function VenueDetailsPage() {
               <>
                 <p className="text-sm text-gray-900">{venue.region || 'N/A'}</p>
                 <button
-                  onClick={() => setEditMode(prev => ({ ...prev, region: true }))}
+                  onClick={() => setEditMode(prev => ({ ...prev, service_area: true }))}
                   className="mt-2 inline-flex items-center px-3 py-1 bg-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-300"
                 >
                   <Edit className="h-4 w-4 mr-1" />

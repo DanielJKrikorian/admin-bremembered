@@ -106,7 +106,10 @@ export default function VendorDetailPage() {
         .eq('id', id)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error fetching vendor:', error, error?.details, error?.message);
+        throw error;
+      }
       setVendor({
         ...data,
         languages: data.vendor_languages ? data.vendor_languages.map((lang: { language: string }) => lang.language).sort() : [],
@@ -131,8 +134,31 @@ export default function VendorDetailPage() {
             label: area.service_areas.region,
           }))
       );
+
+      // Fetch email from users table using user_id
+      if (data.user_id) {
+        console.log('Looking up user with id:', data.user_id);
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('email')
+          .eq('id', data.user_id);
+        if (userError) {
+          console.error('Error fetching user email:', userError, userError?.details, userError?.message);
+          if (userError.code === 'PGRST116') {
+            toast.error(`No user found for user_id: ${data.user_id}. Please check the users table.`);
+          } else {
+            throw userError;
+          }
+        } else if (userData && userData.length > 0) {
+          setVendorEmail(userData[0].email || null);
+          console.log('Fetched email:', userData[0].email);
+        } else {
+          console.warn('No user data returned for user_id:', data.user_id);
+          toast.error(`No email found for user_id: ${data.user_id}.`);
+        }
+      }
     } catch (error: any) {
-      console.error('Error fetching vendor:', error);
+      console.error('Error fetching vendor:', error, error?.details, error?.message);
       toast.error('Failed to load vendor');
       navigate('/dashboard/vendors');
     } finally {
@@ -146,10 +172,13 @@ export default function VendorDetailPage() {
         .from('couples')
         .select('id, name')
         .order('name', { ascending: true });
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error fetching couples:', error, error?.details, error?.message);
+        throw error;
+      }
       setCouples(data || []);
     } catch (error: any) {
-      console.error('Error fetching couples:', error);
+      console.error('Error fetching couples:', error, error?.details, error?.message);
       toast.error('Failed to load couples');
     }
   };
@@ -159,10 +188,13 @@ export default function VendorDetailPage() {
       const { data, error } = await supabase
         .from('service_packages')
         .select('id, name, service_type, event_type');
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error fetching service packages:', error, error?.details, error?.message);
+        throw error;
+      }
       setAvailableServicePackages(data || []);
     } catch (error: any) {
-      console.error('Error fetching service packages:', error);
+      console.error('Error fetching service packages:', error, error?.details, error?.message);
       toast.error('Failed to load service packages');
     }
   };
@@ -172,11 +204,15 @@ export default function VendorDetailPage() {
       const { data, error } = await supabase
         .from('service_areas')
         .select('id, region')
+        .not('region', 'is', null)
         .order('region', { ascending: true });
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error fetching service area options:', error, error?.details, error?.message);
+        throw error;
+      }
       setServiceAreaOptions(data || []);
-    } catch (error) {
-      console.error('Error fetching service area options:', error);
+    } catch (error: any) {
+      console.error('Error fetching service area options:', error, error?.details, error?.message);
       toast.error('Failed to load service area options');
     }
   };
@@ -189,7 +225,10 @@ export default function VendorDetailPage() {
         .from('vendor_service_areas')
         .select('id, vendor_id, service_area_id, service_areas (region)')
         .eq('vendor_id', id);
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error fetching vendor service areas:', error, error?.details, error?.message);
+        throw error;
+      }
       setVendorServiceAreas(
         data?.map((area: any) => ({
           id: area.id,
@@ -205,8 +244,8 @@ export default function VendorDetailPage() {
             label: area.service_areas.region,
           })) || []
       );
-    } catch (error) {
-      console.error('Error fetching vendor service areas:', error);
+    } catch (error: any) {
+      console.error('Error fetching vendor service areas:', error, error?.details, error?.message);
       toast.error('Failed to load vendor service areas');
     }
   };
@@ -222,12 +261,15 @@ export default function VendorDetailPage() {
       const { error } = await supabase
         .from('vendor_service_areas')
         .insert(inserts);
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error adding service areas:', error, error?.details, error?.message);
+        throw error;
+      }
       setStagedServiceAreas([]);
       await fetchVendorServiceAreas();
       toast.success('Service areas added successfully');
     } catch (error: any) {
-      console.error('Error adding service areas:', error);
+      console.error('Error adding service areas:', error, error?.details, error?.message);
       toast.error(`Failed to add service areas: ${error.message}`);
     }
   };
@@ -240,11 +282,14 @@ export default function VendorDetailPage() {
         .from('vendor_service_areas')
         .delete()
         .eq('id', serviceAreaId);
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error removing service area:', error, error?.details, error?.message);
+        throw error;
+      }
       await fetchVendorServiceAreas();
       toast.success('Service area removed successfully');
-    } catch (error) {
-      console.error('Error removing service area:', error);
+    } catch (error: any) {
+      console.error('Error removing service area:', error, error?.details, error?.message);
       toast.error('Failed to remove service area');
     }
   };
@@ -284,6 +329,7 @@ export default function VendorDetailPage() {
         .select();
 
       if (error) {
+        console.error('Supabase error updating vendor:', error, error?.details, error?.message);
         if (error.code === 'PGRST116') {
           toast.error(`No vendor found with id: ${vendor.id}. Please refresh the page.`);
         } else {
@@ -297,7 +343,7 @@ export default function VendorDetailPage() {
         toast.error('Update failed: No rows affected.');
       }
     } catch (error: any) {
-      console.error(`Error updating ${field}:`, error);
+      console.error(`Error updating ${field}:`, error, error?.details, error?.message);
       toast.error(`Failed to update ${field}`);
     } finally {
       setLoading(false);
@@ -320,7 +366,10 @@ export default function VendorDetailPage() {
         })
         .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error adding service:', error, error?.details, error?.message);
+        throw error;
+      }
 
       setVendor(prev => prev ? {
         ...prev,
@@ -337,7 +386,7 @@ export default function VendorDetailPage() {
       });
       toast.success('Service added successfully!');
     } catch (error: any) {
-      console.error('Error adding service:', error);
+      console.error('Error adding service:', error, error?.details, error?.message);
       toast.error('Failed to add service');
     } finally {
       setLoading(false);
@@ -365,7 +414,7 @@ export default function VendorDetailPage() {
         `);
 
       if (error) {
-        console.error('Error adding service package:', error);
+        console.error('Supabase error adding service package:', error, error?.details, error?.message);
         throw error;
       }
 
@@ -389,7 +438,7 @@ export default function VendorDetailPage() {
         toast.error('Failed to add service package: No data returned.');
       }
     } catch (error: any) {
-      console.error('Error adding service package:', error);
+      console.error('Error adding service package:', error, error?.details, error?.message);
       toast.error(`Failed to add service package: ${error.message}`);
     } finally {
       setLoading(false);
@@ -414,7 +463,10 @@ export default function VendorDetailPage() {
         })
         .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error adding review:', error, error?.details, error?.message);
+        throw error;
+      }
 
       if (data && data.length > 0) {
         setVendor(prev => prev ? {
@@ -436,7 +488,7 @@ export default function VendorDetailPage() {
       });
       toast.success('Review added successfully!');
     } catch (error: any) {
-      console.error('Error adding review:', error);
+      console.error('Error adding review:', error, error?.details, error?.message);
       toast.error(`Failed to add review: ${error.message}`);
     } finally {
       setAddingReview(false);
@@ -452,10 +504,13 @@ export default function VendorDetailPage() {
       const response = await supabase.functions.invoke('send-email', {
         body: { user_id: vendorEmail, type: 'reset' },
       });
-      if (response.error) throw response.error;
+      if (response.error) {
+        console.error('Supabase error sending password reset:', response.error, response.error?.details, response.error?.message);
+        throw response.error;
+      }
       toast.success('Password reset email sent! Check your inbox or spam folder.');
     } catch (error: any) {
-      console.error('Error sending password reset:', error);
+      console.error('Error sending password reset:', error, error?.details, error?.message);
       toast.error(`Failed to send password reset email: ${error.message}`);
     }
   };
@@ -469,10 +524,13 @@ export default function VendorDetailPage() {
       const response = await supabase.functions.invoke('send-email', {
         body: { user_id: vendorEmail, type: 'login' },
       });
-      if (response.error) throw response.error;
+      if (response.error) {
+        console.error('Supabase error sending login email:', response.error, response.error?.details, response.error?.message);
+        throw response.error;
+      }
       toast.success('Login email sent! Check your inbox or spam folder.');
     } catch (error: any) {
-      console.error('Error sending login email:', error);
+      console.error('Error sending login email:', error, error?.details, error?.message);
       toast.error(`Failed to send login email: ${error.message}`);
     }
   };
@@ -485,7 +543,10 @@ export default function VendorDetailPage() {
         .update({ status: newStatus })
         .eq('id', packageId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error updating package status:', error, error?.details, error?.message);
+        throw error;
+      }
 
       setVendor(prev => prev ? ({
         ...prev,
@@ -495,7 +556,7 @@ export default function VendorDetailPage() {
       }) : null);
       toast.success(`Package status updated to ${newStatus}`);
     } catch (error: any) {
-      console.error('Error updating package status:', error);
+      console.error('Error updating package status:', error, error?.details, error?.message);
       toast.error('Failed to update package status');
     } finally {
       setUpdatingPackage(null);
@@ -514,7 +575,10 @@ export default function VendorDetailPage() {
         .eq('id', serviceId)
         .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error toggling service:', error, error?.details, error?.message);
+        throw error;
+      }
 
       setVendor(prev => prev ? {
         ...prev,
@@ -524,7 +588,7 @@ export default function VendorDetailPage() {
       } : null);
       toast.success('Service activated successfully!');
     } catch (error: any) {
-      console.error('Error toggling service:', error);
+      console.error('Error toggling service:', error, error?.details, error?.message);
       toast.error('Failed to toggle service');
     } finally {
       setLoading(false);

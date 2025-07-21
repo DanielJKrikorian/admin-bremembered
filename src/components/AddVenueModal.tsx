@@ -27,7 +27,7 @@ interface Venue {
 
 interface ServiceArea {
   id: string;
-  name: string;
+  region: string;
 }
 
 export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenueModalProps) {
@@ -52,11 +52,19 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
         try {
           const { data, error } = await supabase
             .from('service_areas')
-            .select('id, name')
-            .order('name', { ascending: true });
+            .select('id, region')
+            .order('region', { ascending: true });
           
-          if (error) throw error;
-          setServiceAreas(data || []);
+          if (error) {
+            console.error('Supabase error:', error);
+            throw error;
+          }
+          if (!data) {
+            console.warn('No service areas found');
+            setServiceAreas([]);
+            return;
+          }
+          setServiceAreas(data);
         } catch (error) {
           console.error('Error fetching service areas:', error);
           toast.error('Failed to load service areas');
@@ -126,7 +134,7 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
   // Format service areas for react-select
   const serviceAreaOptions = serviceAreas.map(area => ({
     value: area.id,
-    label: area.name
+    label: area.region
   }));
 
   if (!isOpen) return null;

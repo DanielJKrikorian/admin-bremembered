@@ -5,6 +5,19 @@ import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { Vendor, VendorService, ServicePackage, VendorServicePackage, VendorReview } from '../types/types';
 import Select from 'react-select';
+import CreatableSelect from 'react-select/creatable';
+
+interface LanguageOption {
+  id: string;
+  language: string;
+}
+
+interface VendorLanguage {
+  id: string;
+  vendor_id: string;
+  language_id: string;
+  language: string; // For display purposes
+}
 
 export default function VendorDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -62,6 +75,10 @@ export default function VendorDetailPage() {
   const [selectedRegions, setSelectedRegions] = useState<{ value: string; label: string }[]>([]);
   const [stagedServiceAreas, setStagedServiceAreas] = useState<{ service_area_id: string; state: string; region: string }[]>([]);
   const [vendorServiceAreas, setVendorServiceAreas] = useState<{ id: string; service_area_id: string; state: string; region: string }[]>([]);
+  const [languageOptions, setLanguageOptions] = useState<LanguageOption[]>([]);
+  const [selectedLanguages, setSelectedLanguages] = useState<{ value: string; label: string }[]>([]);
+  const [stagedLanguages, setStagedLanguages] = useState<{ language_id: string; language: string }[]>([]);
+  const [vendorLanguages, setVendorLanguages] = useState<VendorLanguage[]>([]);
 
   useEffect(() => {
     fetchVendor();
@@ -69,6 +86,8 @@ export default function VendorDetailPage() {
     fetchAvailableServicePackages();
     fetchServiceAreaOptions();
     fetchVendorServiceAreas();
+    fetchLanguageOptions();
+    fetchVendorLanguages();
   }, [id]);
 
   const fetchVendor = async () => {
@@ -100,7 +119,7 @@ export default function VendorDetailPage() {
             service_areas (id, region, state)
           ),
           vendor_languages (
-            language
+            id, vendor_id, language_id, languages (id, language)
           )
         `)
         .eq('id', id)
@@ -112,7 +131,7 @@ export default function VendorDetailPage() {
       }
       setVendor({
         ...data,
-        languages: data.vendor_languages ? data.vendor_languages.map((lang: { language: string }) => lang.language).sort() : [],
+        languages: data.vendor_languages ? data.vendor_languages.map((lang: any) => lang.languages.language).sort() : [],
       });
       setFormData({
         profile_photo: data.profile_photo || '',
@@ -127,12 +146,28 @@ export default function VendorDetailPage() {
         state: area.state || area.service_areas?.state || 'N/A',
         region: area.region || area.service_areas?.region || 'N/A',
       })));
+      setVendorLanguages(
+        data.vendor_languages.map((lang: any) => ({
+          id: lang.id,
+          vendor_id: lang.vendor_id,
+          language_id: lang.language_id,
+          language: lang.languages?.language || 'Unknown',
+        }))
+      );
       setSelectedRegions(
         data.vendor_service_areas
           .filter((area: any) => area.service_areas?.region)
           .map((area: any) => ({
             value: area.service_area_id,
             label: area.service_areas.region,
+          }))
+      );
+      setSelectedLanguages(
+        data.vendor_languages
+          .filter((lang: any) => lang.languages?.language)
+          .map((lang: any) => ({
+            value: lang.language_id,
+            label: lang.languages.language,
           }))
       );
 
@@ -252,6 +287,57 @@ export default function VendorDetailPage() {
     }
   };
 
+  const fetchLanguageOptions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('languages')
+        .select('id, language')
+        .order('language', { ascending: true });
+      if (error) {
+        console.error('Supabase error fetching language options:', error, error?.details, error?.message);
+        throw error;
+      }
+      setLanguageOptions(data || []);
+    } catch (error: any) {
+      console.error('Error fetching language options:', error, error?.details, error?.message);
+      toast.error('Failed to load language options');
+    }
+  };
+
+  const fetchVendorLanguages = async () => {
+    if (!id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('vendor_languages')
+        .select('id, vendor_id, language_id, languages (id, language)')
+        .eq('vendor_id', id);
+      if (error) {
+        console.error('Supabase error fetching vendor languages:', error, error?.details, error?.message);
+        throw error;
+      }
+      setVendorLanguages(
+        data?.map((lang: any) => ({
+          id: lang.id,
+          vendor_id: lang.vendor_id,
+          language_id: lang.language_id,
+          language: lang.languages?.language || 'Unknown',
+        })) || []
+      );
+      setSelectedLanguages(
+        data
+          ?.filter((lang: any) => lang.languages?.language)
+          .map((lang: any) => ({
+            value: lang.language_id,
+            label: lang.languages.language,
+          })) || []
+      );
+    } catch (error: any) {
+      console.error('Error fetching vendor languages:', error, error?.details, error?.message);
+      toast.error('Failed to load vendor languages');
+    }
+  };
+
   const addServiceAreas = async () => {
     if (!vendor || !stagedServiceAreas.length) return;
 
@@ -278,6 +364,95 @@ export default function VendorDetailPage() {
     }
   };
 
+  const addLanguages = async (languages: { language_id: string; language: string }[]) => {
+    if (!vendor || !languages.length) return;
+
+    try {
+      const inserts = languages.map(({ language_id }) => ({
+        vendor_id: vendor.id,
+        language_id,
+      }));
+      console.log('Inserting languages:', { vendor_id: vendor.id, inserts });
+      const { error } = await supabase
+        .from('vendor_languages')
+        .insert(inserts);
+      if (error) {
+        console.error('Insert error details:', { vendor_id: vendor.id, error });
+        throw error;
+      }
+      setStagedLanguages([]);
+      setSelectedLanguages([]);
+      await fetchVendorLanguages();
+      toast.success('Languages added successfully');
+    } catch (error: any) {
+      console.error('Error adding languages:', error, error?.details, error?.message);
+      toast.error(`Failed to add languages: ${error.message}`);
+    }
+  };
+
+  const handleAddServiceAreas = () => {
+    const newAreas = selectedRegions.map(r => {
+      const serviceArea = serviceAreaOptions.find(option => option.id === r.value);
+      if (!serviceArea) {
+        console.warn(`No service area found for id: ${r.value}`);
+        return null;
+      }
+      return {
+        service_area_id: r.value,
+        state: serviceArea.state || 'N/A',
+        region: serviceArea.region,
+      };
+    }).filter((area): area is { service_area_id: string; state: string; region: string } => area !== null);
+
+    const uniqueAreas = newAreas.filter(
+      (newArea) =>
+        !vendorServiceAreas.some(
+          (area) => area.service_area_id === newArea.service_area_id
+        )
+    );
+
+    setStagedServiceAreas(uniqueAreas);
+    addServiceAreas();
+  };
+
+  const handleAddLanguages = async () => {
+    const newLanguages = stagedLanguages
+      .filter(
+        (lang) => !vendorLanguages.some((vLang) => vLang.language_id === lang.language_id)
+      )
+      .map((lang) => ({
+        language_id: lang.language_id,
+        language: lang.language,
+      }));
+
+    if (!newLanguages.length) {
+      toast.error('All selected languages are already added.');
+      return;
+    }
+
+    // Insert new languages into languages table if they don't exist
+    for (const lang of newLanguages) {
+      if (!languageOptions.some((option) => option.id === lang.language_id)) {
+        try {
+          const { data, error } = await supabase
+            .from('languages')
+            .insert({ language: lang.language })
+            .select('id, language')
+            .single();
+          if (error) throw error;
+          setLanguageOptions((prev) => [...prev, { id: data.id, language: data.language }]);
+          lang.language_id = data.id; // Update language_id for new language
+        } catch (error: any) {
+          console.error('Error adding new language to languages table:', error, error?.details, error?.message);
+          toast.error(`Failed to add language "${lang.language}": ${error.message}`);
+          return;
+        }
+      }
+    }
+
+    await addLanguages(newLanguages);
+  };
+
   const removeServiceArea = async (serviceAreaId: string) => {
     if (!window.confirm('Are you sure you want to remove this service area?')) return;
 
@@ -295,6 +470,26 @@ export default function VendorDetailPage() {
     } catch (error: any) {
       console.error('Error removing service area:', error, error?.details, error?.message);
       toast.error('Failed to remove service area');
+    }
+  };
+
+  const removeLanguage = async (languageId: string) => {
+    if (!window.confirm('Are you sure you want to remove this language?')) return;
+
+    try {
+      const { error } = await supabase
+        .from('vendor_languages')
+        .delete()
+        .eq('id', languageId);
+      if (error) {
+        console.error('Supabase error removing language:', error, error?.details, error?.message);
+        throw error;
+      }
+      await fetchVendorLanguages();
+      toast.success('Language removed successfully');
+    } catch (error: any) {
+      console.error('Error removing language:', error, error?.details, error?.message);
+      toast.error('Failed to remove language');
     }
   };
 
@@ -663,30 +858,14 @@ export default function VendorDetailPage() {
     .filter(option => option.region && !vendorServiceAreas.some(area => area.service_area_id === option.id))
     .map(option => ({ value: option.id, label: option.region }));
 
-  const handleAddServiceAreas = () => {
-    const newAreas = selectedRegions.map(r => {
-      const serviceArea = serviceAreaOptions.find(option => option.id === r.value);
-      if (!serviceArea) {
-        console.warn(`No service area found for id: ${r.value}`);
-        return null;
-      }
-      return {
-        service_area_id: r.value,
-        state: serviceArea.state || 'N/A',
-        region: serviceArea.region,
-      };
-    }).filter((area): area is { service_area_id: string; state: string; region: string } => area !== null);
-
-    const uniqueAreas = newAreas.filter(
-      (newArea) =>
-        !vendorServiceAreas.some(
-          (area) => area.service_area_id === newArea.service_area_id
-        )
-    );
-
-    setStagedServiceAreas(uniqueAreas);
-    addServiceAreas();
-  };
+  const languageSelectOptions = languageOptions
+    .filter(
+      (option) => !vendorLanguages.some((vLang) => vLang.language_id === option.id)
+    )
+    .map((option) => ({
+      value: option.id,
+      label: option.language,
+    }));
 
   if (loading) {
     return (
@@ -900,23 +1079,82 @@ export default function VendorDetailPage() {
                 </div>
               )}
             </div>
-            {vendor.languages && vendor.languages.length > 0 && (
-              <div>
-                <label className="text-sm font-medium text-gray-500 flex items-center">
-                  Languages
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {vendor.languages.map((language, index) => (
-                    <span
-                      key={index}
-                      className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
-                    >
-                      {language}
-                    </span>
-                  ))}
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                <Languages className="h-4 w-4 mr-1" />
+                Languages
+              </label>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    Select or Add Languages
+                  </label>
+                  <CreatableSelect
+                    isMulti
+                    options={languageSelectOptions}
+                    value={selectedLanguages}
+                    onChange={(selected) => {
+                      setSelectedLanguages(selected);
+                      setStagedLanguages(
+                        selected.map((s) => ({
+                          language_id: s.value,
+                          language: s.label,
+                        }))
+                      );
+                    }}
+                    className="basic-multi-select"
+                    classNamePrefix="react-select"
+                    placeholder="Select or type languages..."
+                    formatCreateLabel={(inputValue) => `Add "${inputValue}"`}
+                  />
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleAddLanguages}
+                    disabled={!stagedLanguages.length || loading}
+                    className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                  >
+                    <Plus className="h-5 w-5 mr-2" />
+                    Add Languages
+                  </button>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-2">
+                    Vendor Languages
+                  </label>
+                  {vendorLanguages.length > 0 ? (
+                    <ul className="space-y-2">
+                      {vendorLanguages
+                        .sort((a, b) => a.language.localeCompare(b.language))
+                        .map((lang) => (
+                          <li
+                            key={lang.id}
+                            className="flex items-center justify-between bg-gray-100 p-2 rounded-md"
+                          >
+                            <span className="text-sm text-gray-600">{lang.language}</span>
+                            <button
+                              type="button"
+                              onClick={() => removeLanguage(lang.id)}
+                              className="p-1 bg-red-100 rounded-full text-red-600 hover:bg-red-200"
+                              title="Remove language"
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </li>
+                        ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-gray-500">
+                      No languages selected. Add languages above.
+                    </p>
+                  )}
                 </div>
               </div>
-            )}
+              <p className="mt-2 text-xs text-gray-500">
+                Select or type languages, then click "Add Languages" to save
+              </p>
+            </div>
           </div>
         </div>
       </div>

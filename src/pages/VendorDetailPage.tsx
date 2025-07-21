@@ -58,11 +58,10 @@ export default function VendorDetailPage() {
   });
   const [addingReview, setAddingReview] = useState(false);
   const [showAddReview, setShowAddReview] = useState(false);
-  const [serviceAreaOptions, setServiceAreaOptions] = useState<{ id: string; state: string; region: string | null }[]>([]);
-  const [selectedStates, setSelectedStates] = useState<{ value: string; label: string }[]>([]);
+  const [serviceAreaOptions, setServiceAreaOptions] = useState<{ id: string; region: string }[]>([]);
   const [selectedRegions, setSelectedRegions] = useState<{ value: string; label: string }[]>([]);
-  const [stagedServiceAreas, setStagedServiceAreas] = useState<{ state: string; region: string | null }[]>([]);
-  const [vendorServiceAreas, setVendorServiceAreas] = useState<{ id: string; state: string; region: string | null }[]>([]);
+  const [stagedServiceAreas, setStagedServiceAreas] = useState<{ service_area_id: string }[]>([]);
+  const [vendorServiceAreas, setVendorServiceAreas] = useState<{ id: string; service_area_id: string; region: string }[]>([]);
 
   useEffect(() => {
     fetchVendor();
@@ -97,7 +96,8 @@ export default function VendorDetailPage() {
             )
           ),
           vendor_service_areas (
-            id, vendor_id, state, region
+            id, vendor_id, service_area_id,
+            service_areas (region)
           ),
           vendor_languages (
             language
@@ -118,30 +118,19 @@ export default function VendorDetailPage() {
         profile: data.profile || '',
         specialties: data.specialties?.join(', ') || '',
       });
-      setVendorServiceAreas(data.vendor_service_areas || []);
-
-      // Fetch email from users table using user_id
-      if (data.user_id) {
-        console.log('Looking up user with id:', data.user_id);
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('email')
-          .eq('id', data.user_id);
-        if (userError) {
-          console.error('Error fetching user email:', userError);
-          if (userError.code === 'PGRST116') {
-            toast.error(`No user found for user_id: ${data.user_id}. Please check the users table.`);
-          } else {
-            throw userError;
-          }
-        } else if (userData && userData.length > 0) {
-          setVendorEmail(userData[0].email || null);
-          console.log('Fetched email:', userData[0].email);
-        } else {
-          console.warn('No user data returned for user_id:', data.user_id);
-          toast.error(`No email found for user_id: ${data.user_id}.`);
-        }
-      }
+      setVendorServiceAreas(data.vendor_service_areas.map((area: any) => ({
+        id: area.id,
+        service_area_id: area.service_area_id,
+        region: area.service_areas?.region || 'N/A',
+      })));
+      setSelectedRegions(
+        data.vendor_service_areas
+          .filter((area: any) => area.service_areas?.region)
+          .map((area: any) => ({
+            value: area.service_area_id,
+            label: area.service_areas.region,
+          }))
+      );
     } catch (error: any) {
       console.error('Error fetching vendor:', error);
       toast.error('Failed to load vendor');
@@ -182,9 +171,8 @@ export default function VendorDetailPage() {
     try {
       const { data, error } = await supabase
         .from('service_areas')
-        .select('id, state, region')
-        .order('state', { ascending: true })
-        .order('region', { ascending: true, nullsFirst: false });
+        .select('id, region')
+        .order('region', { ascending: true });
       if (error) throw error;
       setServiceAreaOptions(data || []);
     } catch (error) {
@@ -199,19 +187,24 @@ export default function VendorDetailPage() {
     try {
       const { data, error } = await supabase
         .from('vendor_service_areas')
-        .select('id, vendor_id, state, region')
+        .select('id, vendor_id, service_area_id, service_areas (region)')
         .eq('vendor_id', id);
       if (error) throw error;
-      console.log('Fetched vendor service areas:', { vendor_id: id, data });
-      setVendorServiceAreas(data || []);
-      const states = data
-        ?.filter((area) => !area.region)
-        .map((area) => ({ value: area.state, label: area.state })) || [];
-      const regions = data
-        ?.filter((area) => area.region)
-        .map((area) => ({ value: `${area.state} - ${area.region}`, label: area.region })) || [];
-      setSelectedStates(states);
-      setSelectedRegions(regions);
+      setVendorServiceAreas(
+        data?.map((area: any) => ({
+          id: area.id,
+          service_area_id: area.service_area_id,
+          region: area.service_areas?.region || 'N/A',
+        })) || []
+      );
+      setSelectedRegions(
+        data
+          ?.filter((area: any) => area.service_areas?.region)
+          .map((area: any) => ({
+            value: area.service_area_id,
+            label: area.service_areas.region,
+          })) || []
+      );
     } catch (error) {
       console.error('Error fetching vendor service areas:', error);
       toast.error('Failed to load vendor service areas');
@@ -222,19 +215,14 @@ export default function VendorDetailPage() {
     if (!vendor || !stagedServiceAreas.length) return;
 
     try {
-      const inserts = stagedServiceAreas.map(({ state, region }) => ({
+      const inserts = stagedServiceAreas.map(({ service_area_id }) => ({
         vendor_id: vendor.id,
-        state,
-        region,
+        service_area_id,
       }));
-      console.log('Inserting service areas:', { vendor_id: vendor.id, inserts });
       const { error } = await supabase
         .from('vendor_service_areas')
         .insert(inserts);
-      if (error) {
-        console.error('Insert error details:', { vendor_id: vendor.id, error });
-        throw error;
-      }
+      if (error) throw error;
       setStagedServiceAreas([]);
       await fetchVendorServiceAreas();
       toast.success('Service areas added successfully');
@@ -289,7 +277,6 @@ export default function VendorDetailPage() {
           return;
       }
 
-      console.log('Updating vendor with id:', vendor.id, 'Data:', updateData);
       const { data, error } = await supabase
         .from('vendors')
         .update(updateData)
@@ -297,7 +284,6 @@ export default function VendorDetailPage() {
         .select();
 
       if (error) {
-        console.error('Update error:', error);
         if (error.code === 'PGRST116') {
           toast.error(`No vendor found with id: ${vendor.id}. Please refresh the page.`);
         } else {
@@ -364,7 +350,6 @@ export default function VendorDetailPage() {
 
     setLoading(true);
     try {
-      console.log('Inserting service package:', newServicePackage);
       const { data, error } = await supabase
         .from('vendor_service_packages')
         .insert({
@@ -416,16 +401,7 @@ export default function VendorDetailPage() {
 
     setAddingReview(true);
     try {
-      console.log('Inserting review with payload:', {
-        vendor_id: vendor.id,
-        couple_id: newReview.couple_id,
-        communication_rating: newReview.communication_rating,
-        experience_rating: newReview.experience_rating,
-        quality_rating: newReview.quality_rating,
-        overall_rating: newReview.overall_rating,
-        feedback: newReview.feedback.trim() || null,
-      });
-      const { data, error, status } = await supabase
+      const { data, error } = await supabase
         .from('vendor_reviews')
         .insert({
           vendor_id: vendor.id,
@@ -438,7 +414,6 @@ export default function VendorDetailPage() {
         })
         .select();
 
-      console.log('Insert response:', { data, error, status });
       if (error) throw error;
 
       if (data && data.length > 0) {
@@ -616,45 +591,25 @@ export default function VendorDetailPage() {
     return emailRegex.test(email);
   };
 
-  const stateOptions = [...new Set(serviceAreaOptions.map((option) => option.state))]
-    .map((state) => ({ value: state, label: state }));
   const regionOptions = serviceAreaOptions
-    .filter((option) => option.region && selectedStates.map((s) => s.value).includes(option.state))
-    .map((option) => ({ value: `${option.state} - ${option.region}`, label: option.region! }));
+    .filter(option => option.region)
+    .map(option => ({ value: option.id, label: option.region }));
 
   const handleAddServiceAreas = () => {
-    const newAreas = selectedRegions.length
-      ? selectedRegions.map((r) => {
-          const [state, region] = r.value.split(' - ');
-          return { state, region };
-        })
-      : selectedStates.map((s) => ({ state: s.value, region: null }));
+    const newAreas = selectedRegions.map(r => ({
+      service_area_id: r.value,
+    }));
 
     const uniqueAreas = newAreas.filter(
       (newArea) =>
         !vendorServiceAreas.some(
-          (area) =>
-            area.state === newArea.state &&
-            area.region === newArea.region
+          (area) => area.service_area_id === newArea.service_area_id
         )
     );
 
     setStagedServiceAreas(uniqueAreas);
     addServiceAreas();
   };
-
-  // Group service areas by state for display
-  const groupedServiceAreas = vendorServiceAreas.reduce((acc, area) => {
-    if (!acc[area.state]) {
-      acc[area.state] = { state: area.state, regions: [] };
-    }
-    if (area.region) {
-      acc[area.state].regions.push({ id: area.id, region: area.region });
-    } else {
-      acc[area.state].id = area.id;
-    }
-    return acc;
-  }, {} as Record<string, { id?: string; state: string; regions: { id: string; region: string }[] }>);
 
   if (loading) {
     return (
@@ -935,30 +890,6 @@ export default function VendorDetailPage() {
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">
-              States
-            </label>
-            <Select
-              isMulti
-              options={stateOptions}
-              value={selectedStates}
-              onChange={(selected) => {
-                setSelectedStates(selected);
-                setSelectedRegions(
-                  selectedRegions.filter((r) =>
-                    selected.some((s) => r.value.startsWith(`${s.value} - `))
-                  )
-                );
-                setStagedServiceAreas(
-                  selected.map((s) => ({ state: s.value, region: null }))
-                );
-              }}
-              className="basic-multi-select"
-              classNamePrefix="select"
-              placeholder="Select states..."
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-600 mb-1">
               Regions
             </label>
             <Select
@@ -968,16 +899,14 @@ export default function VendorDetailPage() {
               onChange={(selected) => {
                 setSelectedRegions(selected);
                 setStagedServiceAreas(
-                  selected.map((r) => {
-                    const [state, region] = r.value.split(' - ');
-                    return { state, region };
-                  })
+                  selected.map((r) => ({
+                    service_area_id: r.value,
+                  }))
                 );
               }}
               className="basic-multi-select"
-              classNamePrefix="select"
+              classNamePrefix="react-select"
               placeholder="Select regions..."
-              isDisabled={!selectedStates.length}
             />
           </div>
           <div>
@@ -995,58 +924,38 @@ export default function VendorDetailPage() {
             <label className="block text-sm font-medium text-gray-600 mb-2">
               Vendor Service Areas
             </label>
-            {Object.keys(groupedServiceAreas).length > 0 ? (
+            {vendorServiceAreas.length > 0 ? (
               <div className="space-y-3">
-                {Object.values(groupedServiceAreas)
-                  .sort((a, b) => a.state.localeCompare(b.state))
-                  .map((group) => (
-                    <div key={group.state} className="bg-gray-50 p-3 rounded-md">
-                      <h4 className="text-sm font-semibold text-gray-700 mb-2">{group.state}</h4>
-                      <ul className="space-y-2">
-                        {group.id && (
-                          <li className="flex items-center justify-between bg-gray-100 p-2 rounded-md">
-                            <span className="text-sm text-gray-600">Entire State</span>
-                            <button
-                              type="button"
-                              onClick={() => removeServiceArea(group.id!)}
-                              className="p-1 bg-red-100 rounded-full text-red-600 hover:bg-red-200"
-                              title="Remove state"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          </li>
-                        )}
-                        {group.regions
-                          .sort((a, b) => a.region.localeCompare(b.region))
-                          .map((region) => (
-                            <li
-                              key={region.id}
-                              className="flex items-center justify-between bg-gray-100 p-2 rounded-md"
-                            >
-                              <span className="text-sm text-gray-600">{region.region}</span>
-                              <button
-                                type="button"
-                                onClick={() => removeServiceArea(region.id)}
-                                className="p-1 bg-red-100 rounded-full text-red-600 hover:bg-red-200"
-                                title="Remove region"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </li>
-                          ))}
-                      </ul>
-                    </div>
-                  ))}
+                <ul className="space-y-2">
+                  {vendorServiceAreas
+                    .sort((a, b) => a.region.localeCompare(b.region))
+                    .map((area) => (
+                      <li
+                        key={area.id}
+                        className="flex items-center justify-between bg-gray-100 p-2 rounded-md"
+                      >
+                        <span className="text-sm text-gray-600">{area.region}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeServiceArea(area.id)}
+                          className="p-1 bg-red-100 rounded-full text-red-600 hover:bg-red-200"
+                          title="Remove region"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </li>
+                    ))}
+                </ul>
               </div>
             ) : (
               <p className="text-sm text-gray-500">
-                No service areas selected. Add states or regions above.
+                No service areas selected. Add regions above.
               </p>
             )}
           </div>
         </div>
         <p className="mt-2 text-xs text-gray-500">
-          Select states or regions, then click "Add Service Areas" to save
+          Select regions, then click "Add Service Areas" to save
         </p>
       </div>
 

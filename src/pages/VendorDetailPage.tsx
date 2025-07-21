@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Building2, User, Calendar, MapPin, MessageSquare, Package, CreditCard, Check, Clock, AlertCircle, XCircle, Star, Edit, Phone, Save, Plus, Mail, Key, X } from 'lucide-react';
+import { Building2, User, Calendar, MapPin, MessageSquare, Package, CreditCard, Check, Clock, AlertCircle, XCircle, Star, Edit, Phone, Save, Plus, Mail, Key, X, Languages } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { Vendor, VendorService, ServicePackage, VendorServicePackage, VendorReview } from '../types/types';
@@ -16,7 +16,7 @@ interface VendorLanguage {
   id: string;
   vendor_id: string;
   language_id: string;
-  language: string; // For display purposes
+  language: string;
 }
 
 export default function VendorDetailPage() {
@@ -171,7 +171,6 @@ export default function VendorDetailPage() {
           }))
       );
 
-      // Fetch email from users table using user_id
       if (data.user_id) {
         console.log('Looking up user with id:', data.user_id);
         const { data: userData, error: userError } = await supabase
@@ -247,7 +246,7 @@ export default function VendorDetailPage() {
         throw error;
       }
       setServiceAreaOptions(data || []);
-    } catch (error: any) {
+    } pose: any) {
       console.error('Error fetching service area options:', error, error?.details, error?.message);
       toast.error('Failed to load service area options');
     }
@@ -430,7 +429,6 @@ export default function VendorDetailPage() {
       return;
     }
 
-    // Insert new languages into languages table if they don't exist
     for (const lang of newLanguages) {
       if (!languageOptions.some((option) => option.id === lang.language_id)) {
         try {
@@ -441,7 +439,7 @@ export default function VendorDetailPage() {
             .single();
           if (error) throw error;
           setLanguageOptions((prev) => [...prev, { id: data.id, language: data.language }]);
-          lang.language_id = data.id; // Update language_id for new language
+          lang.language_id = data.id;
         } catch (error: any) {
           console.error('Error adding new language to languages table:', error, error?.details, error?.message);
           toast.error(`Failed to add language "${lang.language}": ${error.message}`);
@@ -848,7 +846,6 @@ export default function VendorDetailPage() {
     });
   };
 
-  // Simple email validation
   const isValidEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
@@ -1738,7 +1735,6 @@ export default function VendorDetailPage() {
   );
 }
 
-// Simple email validation
 function isValidEmail(email: string) {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);

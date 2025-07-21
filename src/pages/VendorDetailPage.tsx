@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Building2, User, Calendar, MapPin, MessageSquare, Package, CreditCard, Check, Clock, AlertCircle, XCircle, Star, Edit, Phone, Save, Plus, Mail, Key, X, Languages } from 'lucide-react';
+import { Building2, User, Calendar, MapPin, MessageSquare, Package, CreditCard, Check, Clock, AlertCircle, XCircle, Star, Edit, Phone, Save, Plus, Mail, Key, X, Globe } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 import { Vendor, VendorService, ServicePackage, VendorServicePackage, VendorReview } from '../types/types';
@@ -246,7 +246,7 @@ export default function VendorDetailPage() {
         throw error;
       }
       setServiceAreaOptions(data || []);
-    } pose: any) {
+    } catch (error: any) {
       console.error('Error fetching service area options:', error, error?.details, error?.message);
       toast.error('Failed to load service area options');
     }
@@ -1078,7 +1078,7 @@ export default function VendorDetailPage() {
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 mb-2 flex items-center">
-                <Languages className="h-4 w-4 mr-1" />
+                <Globe className="h-4 w-4 mr-1" />
                 Languages
               </label>
               <div className="space-y-4">

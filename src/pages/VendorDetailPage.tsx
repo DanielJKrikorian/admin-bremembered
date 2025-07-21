@@ -666,12 +666,16 @@ export default function VendorDetailPage() {
   const handleAddServiceAreas = () => {
     const newAreas = selectedRegions.map(r => {
       const serviceArea = serviceAreaOptions.find(option => option.id === r.value);
+      if (!serviceArea) {
+        console.warn(`No service area found for id: ${r.value}`);
+        return null;
+      }
       return {
         service_area_id: r.value,
-        state: serviceArea?.state || 'N/A',
-        region: r.label,
+        state: serviceArea.state || 'N/A',
+        region: serviceArea.region,
       };
-    });
+    }).filter((area): area is { service_area_id: string; state: string; region: string } => area !== null);
 
     const uniqueAreas = newAreas.filter(
       (newArea) =>
@@ -974,12 +978,16 @@ export default function VendorDetailPage() {
                 setStagedServiceAreas(
                   selected.map((r) => {
                     const serviceArea = serviceAreaOptions.find(option => option.id === r.value);
+                    if (!serviceArea) {
+                      console.warn(`No service area found for id: ${r.value}`);
+                      return null;
+                    }
                     return {
                       service_area_id: r.value,
-                      state: serviceArea?.state || 'N/A',
-                      region: r.label,
+                      state: serviceArea.state || 'N/A',
+                      region: serviceArea.region,
                     };
-                  })
+                  }).filter((area): area is { service_area_id: string; state: string; region: string } => area !== null)
                 );
               }}
               className="basic-multi-select"

@@ -121,8 +121,6 @@ export default function VenueDetailsPage() {
       setVenue(prev => prev ? { ...prev, ...updateData, updated_at: new Date().toISOString() } : null);
       setEditMode(prev => ({ ...prev, [field]: false }));
       toast.success(`${field === 'service_area' ? 'Service Area' : field} updated successfully!`);
- Lubric
-
     } catch (error: any) {
       console.error(`Error updating ${field}:`, error);
       toast.error(`Failed to update ${field === 'service_area' ? 'Service Area' : field}`);
@@ -233,7 +231,7 @@ export default function VenueDetailsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="text-sm font-medium text-gray-500">ID</label>
-            <p className="text-sm text-gray-900">{venue.id}</p>
+            <p className="text-sm font-medium text-gray-900">{venue.id}</p>
           </div>
           <div>
             <label className="text-sm font-medium text-gray-500">Name</label>

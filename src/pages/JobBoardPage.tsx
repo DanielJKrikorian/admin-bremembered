@@ -139,7 +139,7 @@ export default function JobBoardPage() {
     try {
       // Validate required fields
       if (!newJob.job_type) {
-        toast.error('Job Type is required');
+        toast.error('Job hafType is required');
         return;
       }
       if (!newJob.service_package_id) {
@@ -155,15 +155,14 @@ export default function JobBoardPage() {
         return;
       }
 
-      // Convert event_start_time to ISO timestamp
+      // Convert times to ISO format
       let formattedEventStartTime = null;
       if (newJob.event_start_time) {
         formattedEventStartTime = new Date(newJob.event_start_time).toISOString();
       }
-      // Convert event_end_time to HH:mm:ss
       let formattedEventEndTime = null;
       if (newJob.event_end_time) {
-        formattedEventEndTime = new Date(`1970-01-01T${newJob.event_end_time}`).toISOString().slice(11, 19);
+        formattedEventEndTime = new Date(newJob.event_end_time).toISOString();
       }
 
       const { error } = await supabase
@@ -218,7 +217,7 @@ export default function JobBoardPage() {
         }
         let formattedEventEndTime = null;
         if (row[7]) {
-          formattedEventEndTime = new Date(`1970-01-01T${row[7]}`).toISOString().slice(11, 19);
+          formattedEventEndTime = new Date(row[7]).toISOString();
         }
         return {
           id: crypto.randomUUID(),
@@ -450,7 +449,7 @@ export default function JobBoardPage() {
                 </select>
               </div>
               <div>
-                <label htmlFor="event_start_time" className="block text-sm font-medium text-gray-700">Event Start Time</label>
+                <label htmlFor="event_start_time" className="block text-sm font-medium text-gray-700">Event Start Date & Time</label>
                 <input
                   type="datetime-local"
                   id="event_start_time"
@@ -460,9 +459,9 @@ export default function JobBoardPage() {
                 />
               </div>
               <div>
-                <label htmlFor="event_end_time" className="block text-sm font-medium text-gray-700">Event End Time</label>
+                <label htmlFor="event_end_time" className="block text-sm font-medium text-gray-700">Event End Date & Time</label>
                 <input
-                  type="time"
+                  type="datetime-local"
                   id="event_end_time"
                   value={newJob.event_end_time || ''}
                   onChange={(e) => setNewJob({ ...newJob, event_end_time: e.target.value })}

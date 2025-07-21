@@ -39,8 +39,6 @@ export default function JobBoardDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [vendorId, setVendorId] = useState<string | null>(null);
   const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [eventStartTime, setEventStartTime] = useState<string>('');
-  const [eventEndTime, setEventEndTime] = useState<string>('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -78,8 +76,6 @@ export default function JobBoardDetailsPage() {
         };
         setJob(mappedJob);
         setVendorId(mappedJob.vendor_id);
-        setEventStartTime(mappedJob.event_start_time || '');
-        setEventEndTime(mappedJob.event_end_time || '');
         setVendors(vendorsResponse.data || []);
       } catch (error: any) {
         console.error('Error fetching job details:', error);
@@ -102,8 +98,6 @@ export default function JobBoardDetailsPage() {
           vendor_id: vendorId,
           is_open: !vendorId,
           updated_at: new Date().toISOString(),
-          event_start_time: eventStartTime || null,
-          event_end_time: eventEndTime || null,
         })
         .eq('id', job.id);
       if (error) throw error;
@@ -218,21 +212,13 @@ export default function JobBoardDetailsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Event Start Date & Time</label>
-              <input
-                type="datetime-local"
-                value={eventStartTime || ''}
-                onChange={(e) => setEventStartTime(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <p className="mt-1 text-sm text-gray-900">{job.event_start_time ? new Date(job.event_start_time).toLocaleString() : 'N/A'}</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Event End Date & Time</label>
-              <input
-                type="datetime-local"
-                value={eventEndTime || ''}
-                onChange={(e) => setEventEndTime(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <label className="block text-sm font-medium text-gray-700">Event End Date & Time (EST)</label>
+              <p className="mt-1 text-sm text-gray-theory
+                {convertToEST(job.event_end_time)}
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Vendor</label>

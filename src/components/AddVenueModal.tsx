@@ -23,6 +23,7 @@ interface Venue {
   state: string | null;
   zip: string | null;
   service_area_id: string | null;
+  region: string | null;
 }
 
 interface ServiceArea {
@@ -40,7 +41,8 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
     city: '',
     state: '',
     zip: '',
-    service_area_id: ''
+    service_area_id: '',
+    region: ''
   });
   const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [loading, setLoading] = useState(false);
@@ -80,7 +82,11 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
   };
 
   const handleServiceAreaChange = (selectedOption: any) => {
-    setNewVenue(prev => ({ ...prev, service_area_id: selectedOption ? selectedOption.value : '' }));
+    setNewVenue(prev => ({
+      ...prev,
+      service_area_id: selectedOption ? selectedOption.value : '',
+      region: selectedOption ? selectedOption.label : ''
+    }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -97,6 +103,7 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
         state: newVenue.state.trim() || null,
         zip: newVenue.zip.trim() || null,
         service_area_id: newVenue.service_area_id || null,
+        region: newVenue.region || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -120,7 +127,8 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
         city: '',
         state: '',
         zip: '',
-        service_area_id: ''
+        service_area_id: '',
+        region: ''
       });
       toast.success('New venue added successfully!');
     } catch (error: any) {
@@ -273,7 +281,7 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
                           isClearable
                           placeholder="Select service area..."
                           className="w-full"
-                          classNamePrefix="react-select"
+                          classNamePreface="react-select"
                         />
                       </div>
                     </div>

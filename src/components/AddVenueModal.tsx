@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { Save } from 'lucide-react';
+import Select from 'react-select';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
@@ -21,7 +22,12 @@ interface Venue {
   city: string | null;
   state: string | null;
   zip: string | null;
-  region: string | null;
+  service_area_id: string | null;
+}
+
+interface ServiceArea {
+  id: string;
+  name: string;
 }
 
 export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenueModalProps) {
@@ -34,13 +40,39 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
     city: '',
     state: '',
     zip: '',
-    region: ''
+    service_area_id: ''
   });
+  const [serviceAreas, setServiceAreas] = useState<ServiceArea[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Fetch service areas when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      const fetchServiceAreas = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('service_areas')
+            .select('id, name')
+            .order('name', { ascending: true });
+          
+          if (error) throw error;
+          setServiceAreas(data || []);
+        } catch (error) {
+          console.error('Error fetching service areas:', error);
+          toast.error('Failed to load service areas');
+        }
+      };
+      fetchServiceAreas();
+    }
+  }, [isOpen]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setNewVenue(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleServiceAreaChange = (selectedOption: any) => {
+    setNewVenue(prev => ({ ...prev, service_area_id: selectedOption ? selectedOption.value : '' }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -56,7 +88,7 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
         city: newVenue.city.trim() || null,
         state: newVenue.state.trim() || null,
         zip: newVenue.zip.trim() || null,
-        region: newVenue.region.trim() || null,
+        service_area_id: newVenue.service_area_id || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -80,7 +112,7 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
         city: '',
         state: '',
         zip: '',
-        region: ''
+        service_area_id: ''
       });
       toast.success('New venue added successfully!');
     } catch (error: any) {
@@ -90,6 +122,12 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
       setLoading(false);
     }
   };
+
+  // Format service areas for react-select
+  const serviceAreaOptions = serviceAreas.map(area => ({
+    value: area.id,
+    label: area.name
+  }));
 
   if (!isOpen) return null;
 
@@ -218,14 +256,16 @@ export default function AddVenueModal({ isOpen, onClose, onVenueAdded }: AddVenu
                         />
                       </div>
                       <div>
-                        <label htmlFor="new_venue_region" className="block text-sm font-medium text-gray-700">Region</label>
-                        <input
-                          type="text"
-                          id="new_venue_region"
-                          name="region"
-                          value={newVenue.region}
-                          onChange={handleChange}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        <label htmlFor="new_venue_service_area" className="block text-sm font-medium text-gray-700">Service Area</label>
+                        <Select
+                          id="new_venue_service_area"
+                          name="service_area_id"
+                          options={serviceAreaOptions}
+                          onChange={handleServiceAreaChange}
+                          isClearable
+                          placeholder="Select service area..."
+                          className="w-full"
+                          classNamePrefix="react-select"
                         />
                       </div>
                     </div>

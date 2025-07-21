@@ -58,10 +58,10 @@ export default function VendorDetailPage() {
   });
   const [addingReview, setAddingReview] = useState(false);
   const [showAddReview, setShowAddReview] = useState(false);
-  const [serviceAreaOptions, setServiceAreaOptions] = useState<{ id: string; region: string }[]>([]);
+  const [serviceAreaOptions, setServiceAreaOptions] = useState<{ id: string; region: string; state: string }[]>([]);
   const [selectedRegions, setSelectedRegions] = useState<{ value: string; label: string }[]>([]);
-  const [stagedServiceAreas, setStagedServiceAreas] = useState<{ service_area_id: string }[]>([]);
-  const [vendorServiceAreas, setVendorServiceAreas] = useState<{ id: string; service_area_id: string; region: string }[]>([]);
+  const [stagedServiceAreas, setStagedServiceAreas] = useState<{ service_area_id: string; state: string; region: string }[]>([]);
+  const [vendorServiceAreas, setVendorServiceAreas] = useState<{ id: string; service_area_id: string; state: string; region: string }[]>([]);
 
   useEffect(() => {
     fetchVendor();
@@ -96,8 +96,8 @@ export default function VendorDetailPage() {
             )
           ),
           vendor_service_areas (
-            id, vendor_id, service_area_id,
-            service_areas (region)
+            id, vendor_id, service_area_id, state, region,
+            service_areas (id, region, state)
           ),
           vendor_languages (
             language
@@ -124,7 +124,8 @@ export default function VendorDetailPage() {
       setVendorServiceAreas(data.vendor_service_areas.map((area: any) => ({
         id: area.id,
         service_area_id: area.service_area_id,
-        region: area.service_areas?.region || 'N/A',
+        state: area.state || area.service_areas?.state || 'N/A',
+        region: area.region || area.service_areas?.region || 'N/A',
       })));
       setSelectedRegions(
         data.vendor_service_areas
@@ -203,7 +204,7 @@ export default function VendorDetailPage() {
     try {
       const { data, error } = await supabase
         .from('service_areas')
-        .select('id, region')
+        .select('id, region, state')
         .not('region', 'is', null)
         .order('region', { ascending: true });
       if (error) {
@@ -223,7 +224,7 @@ export default function VendorDetailPage() {
     try {
       const { data, error } = await supabase
         .from('vendor_service_areas')
-        .select('id, vendor_id, service_area_id, service_areas (region)')
+        .select('id, vendor_id, service_area_id, state, region, service_areas (id, region, state)')
         .eq('vendor_id', id);
       if (error) {
         console.error('Supabase error fetching vendor service areas:', error, error?.details, error?.message);
@@ -233,7 +234,8 @@ export default function VendorDetailPage() {
         data?.map((area: any) => ({
           id: area.id,
           service_area_id: area.service_area_id,
-          region: area.service_areas?.region || 'N/A',
+          state: area.state || area.service_areas?.state || 'N/A',
+          region: area.region || area.service_areas?.region || 'N/A',
         })) || []
       );
       setSelectedRegions(
@@ -254,9 +256,11 @@ export default function VendorDetailPage() {
     if (!vendor || !stagedServiceAreas.length) return;
 
     try {
-      const inserts = stagedServiceAreas.map(({ service_area_id }) => ({
+      const inserts = stagedServiceAreas.map(({ service_area_id, state, region }) => ({
         vendor_id: vendor.id,
         service_area_id,
+        state,
+        region,
       }));
       const { error } = await supabase
         .from('vendor_service_areas')
@@ -656,13 +660,18 @@ export default function VendorDetailPage() {
   };
 
   const regionOptions = serviceAreaOptions
-    .filter(option => option.region)
+    .filter(option => option.region && !vendorServiceAreas.some(area => area.service_area_id === option.id))
     .map(option => ({ value: option.id, label: option.region }));
 
   const handleAddServiceAreas = () => {
-    const newAreas = selectedRegions.map(r => ({
-      service_area_id: r.value,
-    }));
+    const newAreas = selectedRegions.map(r => {
+      const serviceArea = serviceAreaOptions.find(option => option.id === r.value);
+      return {
+        service_area_id: r.value,
+        state: serviceArea?.state || 'N/A',
+        region: r.label,
+      };
+    });
 
     const uniqueAreas = newAreas.filter(
       (newArea) =>
@@ -706,7 +715,7 @@ export default function VendorDetailPage() {
           )}
         </h1>
         <div className="space-x-2">
-          <button
+          < bañ
             onClick={handleResetPassword}
             className="inline-flex items-center px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
             disabled={!vendor.user_id || !vendorEmail || !isValidEmail(vendorEmail)}
@@ -963,9 +972,14 @@ export default function VendorDetailPage() {
               onChange={(selected) => {
                 setSelectedRegions(selected);
                 setStagedServiceAreas(
-                  selected.map((r) => ({
-                    service_area_id: r.value,
-                  }))
+                  selected.map((r) => {
+                    const serviceArea = serviceAreaOptions.find(option => option.id === r.value);
+                    return {
+                      service_area_id: r.value,
+                      state: serviceArea?.state || 'N/A',
+                      region: r.label,
+                    };
+                  })
                 );
               }}
               className="basic-multi-select"
@@ -998,7 +1012,7 @@ export default function VendorDetailPage() {
                         key={area.id}
                         className="flex items-center justify-between bg-gray-100 p-2 rounded-md"
                       >
-                        <span className="text-sm text-gray-600">{area.region}</span>
+                        <span className="text-sm text-gray-600">{area.region} ({area.state})</span>
                         <button
                           type="button"
                           onClick={() => removeServiceArea(area.id)}
@@ -1189,7 +1203,7 @@ export default function VendorDetailPage() {
                         <button
                           onClick={() => handleUpdatePackageStatus(vendorPackage.id, 'approved')}
                           disabled={updatingPackage === vendorPackage.id}
-                          className="inline-flex items-center px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          className="inline-flex items-center px-3 py-1 bg-green-600 text-white text-sm rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                         >
                           {updatingPackage === vendorPackage.id ? (
                             <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>

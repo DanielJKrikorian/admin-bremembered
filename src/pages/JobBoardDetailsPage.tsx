@@ -21,6 +21,10 @@ interface JobBoard {
   couple_name: string | null;
   service_package_name: string | null;
   vendor_name: string | null;
+  venue_name: string | null;
+  venue_city: string | null;
+  venue_state: string | null;
+  venue_region: string | null;
 }
 
 interface Vendor {
@@ -44,7 +48,8 @@ export default function JobBoardDetailsPage() {
         setLoading(true);
         const [
           jobResponse,
-          vendorsResponse
+          vendorsResponse,
+          venuesResponse
         ] = await Promise.all([
           supabase.from('job_board').select('*').eq('id', id).single().then(res => {
             if (res.error) throw new Error(`Job fetch error: ${res.error.message}`);
@@ -54,13 +59,22 @@ export default function JobBoardDetailsPage() {
             if (res.error) throw new Error(`Vendors fetch error: ${res.error.message}`);
             return res;
           }),
+          supabase.from('venues').select('id, name, city, state, region').then(res => {
+            if (res.error) throw new Error(`Venues fetch error: ${res.error.message}`);
+            return res;
+          }),
         ]);
 
+        const venue = venuesResponse.data.find(v => v.id === jobResponse.data.venue_id);
         const mappedJob: JobBoard = {
           ...jobResponse.data,
           couple_name: jobResponse.data.couple_id ? (await supabase.from('couples').select('name').eq('id', jobResponse.data.couple_id).single()).data?.name || 'N/A' : 'N/A',
           service_package_name: jobResponse.data.service_package_id ? (await supabase.from('service_packages').select('name').eq('id', jobResponse.data.service_package_id).single()).data?.name || 'N/A' : 'N/A',
           vendor_name: jobResponse.data.vendor_id ? (vendorsResponse.data.find(v => v.id === jobResponse.data.vendor_id)?.name || 'N/A') : null,
+          venue_name: venue ? venue.name : 'N/A',
+          venue_city: venue ? venue.city : 'N/A',
+          venue_state: venue ? venue.state : 'N/A',
+          venue_region: venue ? venue.region : 'N/A',
         };
         setJob(mappedJob);
         setVendorId(mappedJob.vendor_id);
@@ -196,12 +210,29 @@ export default function JobBoardDetailsPage() {
               <p className="mt-1 text-sm text-gray-900">{job.service_package_name}</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Event Start Date & Time</label>
-              <p className="mt-1 text-sm text-gray-900">{job.event_start_time ? new Date(job.event_start_time).toLocaleString() : 'N/A'}</p>
+              <label className="block text-sm font-medium text-gray-700">Venue</label>
+              <p className="mt-1 text-sm text-gray-900">
+                {job.venue_name || 'N/A'}
+                {job.venue_name && job.venue_city && job.venue_state ? ` (${job.venue_city}, ${job.venue_state}${job.venue_region ? `, ${job.venue_region}` : ''})` : ''}
+              </p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Event End Date & Time (EST)</label>
-              <p className="mt-1 text-sm text-gray-900">{convertToEST(job.event_end_time)}</p>
+              <label className="block text-sm font-medium text-gray-700">Event Start Date & Time</label>
+              <input
+                type="datetime-local"
+                value={eventStartTime || ''}
+                onChange={(e) => setEventStartTime(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Event End Date & Time</label>
+              <input
+                type="datetime-local"
+                value={eventEndTime || ''}
+                onChange={(e) => setEventEndTime(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Vendor</label>

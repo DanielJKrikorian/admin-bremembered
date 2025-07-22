@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { supabase } from '../lib/supabase';
-import { Calendar, Plus, Trash2, Search, Eye } from 'lucide-react'; // Added Eye import
+import { Calendar, Plus, Trash2, Search, Eye, Copy, Mail, Save } from 'lucide-react'; // Added Eye import
 import toast from 'react-hot-toast';
 
 interface Couple {

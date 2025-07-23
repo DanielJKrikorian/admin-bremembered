@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
 import { supabase } from '../lib/supabase';
-import { Calendar, Plus, Trash2, Search, Eye, Copy, Mail, Save } from 'lucide-react'; // Added Eye import
+import { Calendar, Plus, Trash2, Search, Eye, Copy, Mail, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface Couple {
@@ -20,6 +20,7 @@ interface Vendor {
   user_id: string;
   email: string;
   phone: string;
+  stripe_account_id?: string;
 }
 
 interface ServicePackage {
@@ -34,18 +35,49 @@ interface StoreProduct {
   price: number;
 }
 
+interface Event {
+  id: string;
+  title: string;
+  start_time: string;
+}
+
+interface Booking {
+  id: string;
+  couple_id: string;
+  vendor_id: string;
+  package_id: string;
+  amount: number;
+  initial_payment: number;
+  service_type: string;
+  event_id: string;
+}
+
+interface VendorServicePackage {
+  vendor_id: string;
+  service_package_id: string;
+  service_type: string;
+}
+
 interface InvoiceLineItem {
   id?: string;
   type: 'service_package' | 'store_product' | 'custom';
   service_package_id?: string;
   store_product_id?: string;
+  booking_id?: string;
   custom_description?: string;
   custom_price: number;
   quantity: number;
+  vendor_id?: string;
+  stripe_account_id?: string;
+  service_package_name?: string;
+  store_product_name?: string;
+  vendor_name?: string;
+  event_title?: string;
 }
 
 interface Invoice {
   id: string;
+  recipient_type: 'couple' | 'vendor';
   couple_id?: string;
   vendor_id?: string;
   total_amount: number;
@@ -56,8 +88,8 @@ interface Invoice {
   status: string;
   paid_at?: string;
   payment_token?: string;
-  couples?: Couple;
-  vendors?: Vendor;
+  couple_name?: string;
+  vendor_name?: string;
   invoice_line_items?: InvoiceLineItem[];
 }
 
@@ -67,9 +99,12 @@ export default function InvoicePage() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [servicePackages, setServicePackages] = useState<ServicePackage[]>([]);
   const [storeProducts, setStoreProducts] = useState<StoreProduct[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [vendorServicePackages, setVendorServicePackages] = useState<VendorServicePackage[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [selectedCoupleId, setSelectedCoupleId] = useState<string | null>(null);
-  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
+  const [recipientType, setRecipientType] = useState<'couple' | 'vendor'>('couple');
+  const [recipientId, setRecipientId] = useState<string | null>(null);
   const [lineItems, setLineItems] = useState<InvoiceLineItem[]>([]);
   const [discountAmount, setDiscountAmount] = useState<number>(0);
   const [discountPercentage, setDiscountPercentage] = useState<number>(0);
@@ -86,18 +121,29 @@ export default function InvoicePage() {
   const fetchData = async () => {
     try {
       setIsLoading(true);
-      const [couplesResponse, vendorsResponse, usersResponse, servicePackagesResponse, storeProductsResponse, invoicesResponse] = await Promise.all([
-        supabase.from('couples').select('*'),
-        supabase.from('vendors').select('id, name, user_id, phone'),
+      console.log('[InvoicePage] Fetching data...');
+      const [
+        couplesResponse,
+        vendorsResponse,
+        usersResponse,
+        servicePackagesResponse,
+        storeProductsResponse,
+        bookingsResponse,
+        eventsResponse,
+        vendorServicePackagesResponse,
+        invoicesResponse,
+        lineItemsResponse
+      ] = await Promise.all([
+        supabase.from('couples').select('id, partner1_name, partner2_name, email, phone'),
+        supabase.from('vendors').select('id, name, user_id, phone, stripe_account_id'),
         supabase.from('users').select('id, email'),
         supabase.from('service_packages').select('id, name, price'),
         supabase.from('store_products').select('id, name, price'),
-        supabase.from('invoices').select(`
-          *,
-          couples(partner1_name, partner2_name, email, phone),
-          vendors(name, user_id, phone),
-          invoice_line_items(*, service_packages(name), store_products(name))
-        `),
+        supabase.from('bookings').select('id, couple_id, vendor_id, package_id, amount, initial_payment, service_type, event_id'),
+        supabase.from('events').select('id, title, start_time'),
+        supabase.from('vendor_service_packages').select('vendor_id, service_package_id, service_type'),
+        supabase.from('invoices').select('id, recipient_type, couple_id, vendor_id, total_amount, remaining_balance, discount_amount, discount_percentage, deposit_amount, status, paid_at, payment_token'),
+        supabase.from('invoice_line_items').select('id, invoice_id, type, service_package_id, store_product_id, booking_id, custom_description, custom_price, quantity, vendor_id, stripe_account_id')
       ]);
 
       if (couplesResponse.error) throw couplesResponse.error;
@@ -105,8 +151,25 @@ export default function InvoicePage() {
       if (usersResponse.error) throw usersResponse.error;
       if (servicePackagesResponse.error) throw servicePackagesResponse.error;
       if (storeProductsResponse.error) throw storeProductsResponse.error;
+      if (bookingsResponse.error) throw bookingsResponse.error;
+      if (eventsResponse.error) throw eventsResponse.error;
+      if (vendorServicePackagesResponse.error) throw vendorServicePackagesResponse.error;
       if (invoicesResponse.error) throw invoicesResponse.error;
+      if (lineItemsResponse.error) throw lineItemsResponse.error;
 
+      console.log('[InvoicePage] Data fetched:', {
+        couples: couplesResponse.data.length,
+        vendors: vendorsResponse.data.length,
+        servicePackages: servicePackagesResponse.data.length,
+        storeProducts: storeProductsResponse.data.length,
+        bookings: bookingsResponse.data.length,
+        events: eventsResponse.data.length,
+        vendorServicePackages: vendorServicePackagesResponse.data.length,
+        invoices: invoicesResponse.data.length,
+        lineItems: lineItemsResponse.data.length
+      });
+
+      // Combine vendor email
       const vendorWithEmail = vendorsResponse.data.map((vendor: any) => {
         const user = usersResponse.data.find((u: any) => u.id === vendor.user_id);
         return {
@@ -115,13 +178,47 @@ export default function InvoicePage() {
         };
       });
 
+      // Combine invoice line items with related data
+      const enrichedInvoices = invoicesResponse.data.map((invoice: any) => {
+        const invoiceLineItems = lineItemsResponse.data
+          .filter((item: any) => item.invoice_id === invoice.id)
+          .map((item: any) => {
+            const booking = item.booking_id ? bookingsResponse.data.find((b: any) => b.id === item.booking_id) : null;
+            const servicePackage = item.service_package_id ? servicePackagesResponse.data.find((sp: any) => sp.id === item.service_package_id) : null;
+            const storeProduct = item.store_product_id ? storeProductsResponse.data.find((sp: any) => sp.id === item.store_product_id) : null;
+            const vendor = item.vendor_id ? vendorWithEmail.find((v: any) => v.id === item.vendor_id) : null;
+            const event = booking && booking.event_id ? eventsResponse.data.find((e: any) => e.id === booking.event_id) : null;
+
+            return {
+              ...item,
+              service_package_name: servicePackage ? servicePackage.name : undefined,
+              store_product_name: storeProduct ? storeProduct.name : undefined,
+              vendor_name: vendor ? vendor.name : undefined,
+              event_title: event ? event.title : undefined,
+            };
+          });
+
+        const couple = invoice.couple_id ? couplesResponse.data.find((c: any) => c.id === invoice.couple_id) : null;
+        const vendor = invoice.vendor_id ? vendorWithEmail.find((v: any) => v.id === invoice.vendor_id) : null;
+
+        return {
+          ...invoice,
+          couple_name: couple ? `${couple.partner1_name} ${couple.partner2_name || ''}` : undefined,
+          vendor_name: vendor ? vendor.name : undefined,
+          invoice_line_items: invoiceLineItems,
+        };
+      });
+
       setCouples(couplesResponse.data || []);
       setVendors(vendorWithEmail);
       setServicePackages(servicePackagesResponse.data || []);
       setStoreProducts(storeProductsResponse.data || []);
-      setInvoices(invoicesResponse.data || []);
+      setBookings(bookingsResponse.data || []);
+      setEvents(eventsResponse.data || []);
+      setVendorServicePackages(vendorServicePackagesResponse.data || []);
+      setInvoices(enrichedInvoices);
     } catch (error: any) {
-      console.error('[InvoicePage] Error fetching data:', error);
+      console.error('[InvoicePage] Error fetching data:', JSON.stringify(error, null, 2));
       toast.error('Failed to load data');
     } finally {
       setIsLoading(false);
@@ -129,29 +226,61 @@ export default function InvoicePage() {
   };
 
   const addLineItem = () => {
-    setLineItems([...lineItems, {
-      type: 'custom',
+    if (recipientType === 'couple' && lineItems.filter(item => item.type === 'service_package' && item.booking_id).length >= 3) {
+      toast.error('Maximum of three booking-related line items per invoice');
+      return;
+    }
+    const newLineItem: InvoiceLineItem = {
+      type: recipientType === 'couple' ? 'service_package' : 'custom',
       custom_description: '',
       custom_price: 0,
       quantity: 1,
-    }]);
+      stripe_account_id: undefined,
+    };
+    console.log('[InvoicePage] Adding line item:', newLineItem);
+    setLineItems([...lineItems, newLineItem]);
   };
 
   const updateLineItem = (index: number, field: string, value: any) => {
     const newLineItems = [...lineItems];
     const item = newLineItems[index];
+    const validTypes = ['service_package', 'store_product', 'custom'];
+
+    if (field === 'type' && !validTypes.includes(value)) {
+      console.error('[InvoicePage] Invalid line item type:', value);
+      toast.error(`Invalid line item type: ${value}`);
+      return;
+    }
+
     if (field === 'service_package_id' && value) {
       const pkg = servicePackages.find(sp => sp.id === value);
-      if (pkg) item.custom_price = pkg.price;
+      if (pkg) {
+        item.custom_price = pkg.price;
+        item.stripe_account_id = undefined; // Payments for service packages go to platform
+      }
     } else if (field === 'store_product_id' && value) {
       const product = storeProducts.find(sp => sp.id === value);
-      if (product) item.custom_price = product.price;
+      if (product) {
+        item.custom_price = product.price;
+        item.stripe_account_id = undefined; // Payments for store products go to platform
+      }
+    } else if (field === 'booking_id' && value) {
+      const booking = bookings.find(b => b.id === value);
+      if (booking) {
+        item.type = 'service_package'; // Bookings are treated as service packages
+        item.custom_price = depositPercentage > 0 ? booking.initial_payment : booking.amount;
+        item.vendor_id = booking.vendor_id;
+        item.stripe_account_id = vendors.find(v => v.id === booking.vendor_id)?.stripe_account_id || undefined;
+        item.service_package_id = booking.package_id;
+      }
     }
     newLineItems[index] = { ...item, [field]: value };
+    console.log('[InvoicePage] Updated line item:', newLineItems[index]);
     setLineItems(newLineItems);
   };
 
   const removeLineItem = (index: number) => {
+    console.log('[InvoicePage] Removing line item at index:', index);
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
@@ -167,56 +296,89 @@ export default function InvoicePage() {
   };
 
   const handleSaveInvoice = async () => {
-    if (!selectedCoupleId || !selectedVendorId || lineItems.length === 0) {
-      toast.error('Please select a couple, vendor, and add at least one line item');
+    if (!recipientType || !recipientId || lineItems.length === 0) {
+      toast.error('Please select a recipient and add at least one line item');
       return;
+    }
+
+    // Validate line items
+    const validTypes = ['service_package', 'store_product', 'custom'];
+    for (const item of lineItems) {
+      if (!validTypes.includes(item.type)) {
+        console.error('[InvoicePage] Invalid line item type:', item.type);
+        toast.error(`Invalid line item type: ${item.type}`);
+        return;
+      }
+      if (item.type === 'service_package' && !item.service_package_id) {
+        toast.error('Please select a service package or booking for all service package line items');
+        return;
+      }
+      if (item.type === 'store_product' && !item.store_product_id) {
+        toast.error('Please select a store product for all store product line items');
+        return;
+      }
+      if (item.type === 'custom' && (!item.custom_description || item.custom_price <= 0)) {
+        toast.error('Please provide a description and valid price for all custom line items');
+        return;
+      }
     }
 
     const total = calculateTotal();
     const deposit = calculateDeposit();
     const newInvoice = {
-      couple_id: selectedCoupleId,
-      vendor_id: selectedVendorId,
+      recipient_type: recipientType,
+      couple_id: recipientType === 'couple' ? recipientId : null,
+      vendor_id: recipientType === 'vendor' ? recipientId : null,
       total_amount: total,
       remaining_balance: total - deposit,
       discount_amount: isDiscountPercentage ? 0 : discountAmount,
       discount_percentage: isDiscountPercentage ? discountPercentage : 0,
       deposit_amount: deposit,
-      status: 'draft', // Use valid status
+      status: 'draft',
     };
 
     try {
-      console.log('[InvoicePage] Creating invoice with data:', newInvoice);
+      console.log('[InvoicePage] Creating invoice with data:', JSON.stringify(newInvoice, null, 2));
       const { data, error } = await supabase
         .from('invoices')
         .insert(newInvoice)
         .select('*, payment_token')
         .single();
-      if (error) throw error;
+      if (error) {
+        console.error('[InvoicePage] Invoice insert error:', JSON.stringify(error, null, 2));
+        throw error;
+      }
 
       const lineItemsData = lineItems.map(item => ({
         invoice_id: data.id,
         type: item.type,
         service_package_id: item.service_package_id,
         store_product_id: item.store_product_id,
+        booking_id: item.booking_id,
         custom_description: item.custom_description,
         custom_price: item.custom_price,
         quantity: item.quantity,
+        vendor_id: item.vendor_id,
+        stripe_account_id: item.stripe_account_id || null,
       }));
+      console.log('[InvoicePage] Inserting line items:', JSON.stringify(lineItemsData, null, 2));
       const { error: lineItemsError } = await supabase.from('invoice_line_items').insert(lineItemsData);
-      if (lineItemsError) throw lineItemsError;
+      if (lineItemsError) {
+        console.error('[InvoicePage] Line items insert error:', JSON.stringify(lineItemsError, null, 2));
+        throw lineItemsError;
+      }
 
       toast.success('Invoice created successfully!');
       setLineItems([]);
-      setSelectedCoupleId(null);
-      setSelectedVendorId(null);
+      setRecipientType('couple');
+      setRecipientId(null);
       setDiscountAmount(0);
       setDiscountPercentage(0);
       setDepositPercentage(0);
       setIsCreateModalOpen(false);
       fetchData();
     } catch (error: any) {
-      console.error('[InvoicePage] Error saving invoice:', error);
+      console.error('[InvoicePage] Error saving invoice:', JSON.stringify(error, null, 2));
       toast.error('Failed to create invoice: ' + error.message);
     }
   };
@@ -245,26 +407,47 @@ export default function InvoicePage() {
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
-      // Update status to 'sent'
       const { error: updateError } = await supabase
         .from('invoices')
         .update({ status: 'sent' })
         .eq('id', invoice.id);
       if (updateError) throw updateError;
 
-      toast.success(`Invoice email sent to ${invoice.couples?.email}`);
+      const recipientEmail = invoice.recipient_type === 'couple' ? couples.find(c => c.id === invoice.couple_id)?.email : vendors.find(v => v.id === invoice.vendor_id)?.email;
+      toast.success(`Invoice email sent to ${recipientEmail}`);
       fetchData();
     } catch (err) {
-      console.error('[InvoicePage] Error sending invoice email:', err);
+      console.error('[InvoicePage] Error sending invoice email:', JSON.stringify(err, null, 2));
       toast.error('Failed to send invoice email');
     }
   };
 
   const filteredInvoices = invoices.filter(invoice =>
-    (invoice.couples ? `${invoice.couples.partner1_name} ${invoice.couples.partner2_name || ''}`.toLowerCase().includes(searchTerm.toLowerCase()) : false) ||
-    (invoice.vendors ? invoice.vendors.name.toLowerCase().includes(searchTerm.toLowerCase()) : false) ||
+    (invoice.recipient_type === 'couple' && invoice.couple_name
+      ? invoice.couple_name.toLowerCase().includes(searchTerm.toLowerCase())
+      : invoice.recipient_type === 'vendor' && invoice.vendor_name
+      ? invoice.vendor_name.toLowerCase().includes(searchTerm.toLowerCase())
+      : false) ||
     invoice.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const getBookingDetails = (bookingId: string | undefined) => {
+    if (!bookingId) return null;
+    const booking = bookings.find(b => b.id === bookingId);
+    if (!booking) return null;
+    const servicePackage = servicePackages.find(sp => sp.id === booking.package_id);
+    const vendor = vendors.find(v => v.id === booking.vendor_id);
+    const event = events.find(e => e.id === booking.event_id);
+    return {
+      packageName: servicePackage?.name || booking.service_type,
+      packagePrice: servicePackage?.price ? (servicePackage.price / 100).toFixed(2) : 'N/A',
+      vendorName: vendor?.name || 'N/A',
+      vendorEmail: vendor?.email || 'N/A',
+      vendorPhone: vendor?.phone || 'N/A',
+      stripeAccountId: vendor?.stripe_account_id || 'N/A',
+      eventTitle: event?.title || 'N/A',
+    };
+  };
 
   if (isLoading) {
     return (
@@ -316,8 +499,7 @@ export default function InvoicePage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Couple</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Recipient</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -329,9 +511,12 @@ export default function InvoicePage() {
                   <tr key={invoice.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{invoice.id}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {invoice.couples ? `${invoice.couples.partner1_name} ${invoice.couples.partner2_name || ''}` : 'N/A'}
+                      {invoice.recipient_type === 'couple' && invoice.couple_name
+                        ? invoice.couple_name
+                        : invoice.recipient_type === 'vendor' && invoice.vendor_name
+                        ? invoice.vendor_name
+                        : 'N/A'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{invoice.vendors?.name || 'N/A'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${(invoice.total_amount / 100).toFixed(2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${(invoice.remaining_balance / 100).toFixed(2)}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -406,101 +591,168 @@ export default function InvoicePage() {
                   </Dialog.Title>
                   <div className="mt-2 space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Select Couple</label>
-                      <select
-                        value={selectedCoupleId || ''}
-                        onChange={(e) => setSelectedCoupleId(e.target.value || null)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Select a couple</option>
-                        {couples.map(couple => (
-                          <option key={couple.id} value={couple.id}>
-                            {couple.partner1_name} {couple.partner2_name || ''}
-                          </option>
-                        ))}
-                      </select>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Recipient Type</label>
+                      <div className="flex items-center space-x-4">
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            checked={recipientType === 'couple'}
+                            onChange={() => {
+                              setRecipientType('couple');
+                              setRecipientId(null);
+                              setLineItems([]);
+                            }}
+                            className="mr-1"
+                          />
+                          Couple
+                        </label>
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            checked={recipientType === 'vendor'}
+                            onChange={() => {
+                              setRecipientType('vendor');
+                              setRecipientId(null);
+                              setLineItems([]);
+                            }}
+                            className="mr-1"
+                          />
+                          Vendor
+                        </label>
+                      </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Select Vendor</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Select {recipientType === 'couple' ? 'Couple' : 'Vendor'}
+                      </label>
                       <select
-                        value={selectedVendorId || ''}
-                        onChange={(e) => setSelectedVendorId(e.target.value || null)}
+                        value={recipientId || ''}
+                        onChange={(e) => setRecipientId(e.target.value || null)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
-                        <option value="">Select a vendor</option>
-                        {vendors.map(vendor => (
-                          <option key={vendor.id} value={vendor.id}>{vendor.name} ({vendor.email})</option>
-                        ))}
+                        <option value="">Select a {recipientType === 'couple' ? 'couple' : 'vendor'}</option>
+                        {recipientType === 'couple'
+                          ? couples.map(couple => (
+                              <option key={couple.id} value={couple.id}>
+                                {couple.partner1_name} {couple.partner2_name || ''}
+                              </option>
+                            ))
+                          : vendors.map(vendor => (
+                              <option key={vendor.id} value={vendor.id}>
+                                {vendor.name} ({vendor.email})
+                              </option>
+                            ))}
                       </select>
                     </div>
                     <div>
                       <h3 className="text-lg font-medium text-gray-900 mb-2">Line Items</h3>
                       {lineItems.map((item, index) => (
-                        <div key={index} className="flex items-center space-x-4 mb-4 p-4 bg-gray-50 rounded-lg">
-                          <select
-                            value={item.type}
-                            onChange={(e) => updateLineItem(index, 'type', e.target.value)}
-                            className="w-1/4 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="service_package">Service Package</option>
-                            <option value="store_product">Store Product</option>
-                            <option value="custom">Custom</option>
-                          </select>
-                          {item.type === 'service_package' && (
+                        <div key={index} className="mb-4 p-4 bg-gray-50 rounded-lg">
+                          <div className="flex items-center space-x-4">
                             <select
-                              value={item.service_package_id || ''}
-                              onChange={(e) => updateLineItem(index, 'service_package_id', e.target.value)}
-                              className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={item.type}
+                              onChange={(e) => updateLineItem(index, 'type', e.target.value)}
+                              className="w-1/4 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                             >
-                              <option value="">Select Package</option>
-                              {servicePackages.map(pkg => (
-                                <option key={pkg.id} value={pkg.id}>{pkg.name} (${(pkg.price / 100).toFixed(2)})</option>
-                              ))}
+                              {recipientType === 'couple' && <option value="service_package">Booking</option>}
+                              <option value="service_package">Service Package</option>
+                              <option value="store_product">Store Product</option>
+                              <option value="custom">Custom</option>
                             </select>
-                          )}
-                          {item.type === 'store_product' && (
-                            <select
-                              value={item.store_product_id || ''}
-                              onChange={(e) => updateLineItem(index, 'store_product_id', e.target.value)}
-                              className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            >
-                              <option value="">Select Product</option>
-                              {storeProducts.map(product => (
-                                <option key={product.id} value={product.id}>{product.name} (${(product.price / 100).toFixed(2)})</option>
-                              ))}
-                            </select>
-                          )}
-                          {item.type === 'custom' && (
-                            <>
-                              <input
-                                type="text"
-                                value={item.custom_description || ''}
-                                onChange={(e) => updateLineItem(index, 'custom_description', e.target.value)}
-                                placeholder="Description"
+                            {item.type === 'service_package' && recipientType === 'couple' && (
+                              <select
+                                value={item.booking_id || ''}
+                                onChange={(e) => updateLineItem(index, 'booking_id', e.target.value)}
                                 className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-                              <input
-                                type="number"
-                                value={item.custom_price / 100 || 0}
-                                onChange={(e) => updateLineItem(index, 'custom_price', parseInt(e.target.value, 10) * 100 || 0)}
-                                placeholder="Price ($)"
-                                className="w-1/6 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-                            </>
+                              >
+                                <option value="">Select Booking</option>
+                                {bookings
+                                  .filter(b => b.couple_id === recipientId)
+                                  .filter(b => vendorServicePackages.some(vsp => vsp.vendor_id === b.vendor_id && vsp.service_package_id === b.package_id))
+                                  .map(booking => {
+                                    const event = events.find(e => e.id === booking.event_id);
+                                    const servicePackage = servicePackages.find(sp => sp.id === booking.package_id);
+                                    return (
+                                      <option key={booking.id} value={booking.id}>
+                                        {servicePackage?.name || booking.service_type} by {vendors.find(v => v.id === booking.vendor_id)?.name || 'N/A'} - {event?.title || 'Event'} ($
+                                        {(depositPercentage > 0 ? booking.initial_payment : booking.amount) / 100}
+                                        )
+                                      </option>
+                                    );
+                                  })}
+                              </select>
+                            )}
+                            {item.type === 'service_package' && recipientType === 'vendor' && (
+                              <select
+                                value={item.service_package_id || ''}
+                                onChange={(e) => updateLineItem(index, 'service_package_id', e.target.value)}
+                                className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">Select Package</option>
+                                {servicePackages.map(pkg => (
+                                  <option key={pkg.id} value={pkg.id}>
+                                    {pkg.name} (${(pkg.price / 100).toFixed(2)})
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            {item.type === 'store_product' && (
+                              <select
+                                value={item.store_product_id || ''}
+                                onChange={(e) => updateLineItem(index, 'store_product_id', e.target.value)}
+                                className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">Select Product</option>
+                                {storeProducts.map(product => (
+                                  <option key={product.id} value={product.id}>
+                                    {product.name} (${(product.price / 100).toFixed(2)})
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            {item.type === 'custom' && (
+                              <>
+                                <input
+                                  type="text"
+                                  value={item.custom_description || ''}
+                                  onChange={(e) => updateLineItem(index, 'custom_description', e.target.value)}
+                                  placeholder="Description"
+                                  className="w-1/3 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <input
+                                  type="number"
+                                  value={item.custom_price / 100 || 0}
+                                  onChange={(e) => updateLineItem(index, 'custom_price', parseInt(e.target.value, 10) * 100 || 0)}
+                                  placeholder="Price ($)"
+                                  className="w-1/6 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                              </>
+                            )}
+                            <input
+                              type="number"
+                              value={item.quantity}
+                              onChange={(e) => updateLineItem(index, 'quantity', parseInt(e.target.value, 10) || 1)}
+                              placeholder="Qty"
+                              className="w-1/6 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <button
+                              onClick={() => removeLineItem(index)}
+                              className="px-2 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                          {item.booking_id && getBookingDetails(item.booking_id) && (
+                            <div className="mt-2 text-sm text-gray-600">
+                              <p><strong>Package Name:</strong> {getBookingDetails(item.booking_id)?.packageName}</p>
+                              <p><strong>Package Price:</strong> ${getBookingDetails(item.booking_id)?.packagePrice}</p>
+                              <p><strong>Vendor Name:</strong> {getBookingDetails(item.booking_id)?.vendorName}</p>
+                              <p><strong>Vendor Email:</strong> {getBookingDetails(item.booking_id)?.vendorEmail}</p>
+                              <p><strong>Vendor Phone:</strong> {getBookingDetails(item.booking_id)?.vendorPhone}</p>
+                              <p><strong>Stripe Account ID:</strong> {getBookingDetails(item.booking_id)?.stripeAccountId}</p>
+                              <p><strong>Event:</strong> {getBookingDetails(item.booking_id)?.eventTitle}</p>
+                            </div>
                           )}
-                          <input
-                            type="number"
-                            value={item.quantity}
-                            onChange={(e) => updateLineItem(index, 'quantity', parseInt(e.target.value, 10) || 1)}
-                            placeholder="Qty"
-                            className="w-1/6 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          />
-                          <button
-                            onClick={() => removeLineItem(index)}
-                            className="px-2 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
                         </div>
                       ))}
                       <button

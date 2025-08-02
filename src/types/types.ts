@@ -47,21 +47,102 @@ export interface VendorService {
   }
   
   export interface Vendor {
+    id: string;
+    user_id: string;
+    name: string;
+    profile: string | null;
+    gear_list: string[] | null;
+    rating: number | null;
+    stripe_account_id: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+    profile_photo: string | null;
+    intro_video: string | null;
+    years_experience: number | null;
+    phone: string | null;
+    phone_number: string | null; // Added for schema compatibility
+    portfolio_photos: string[] | null;
+    portfolio_videos: string[] | null;
+    specialties: string[] | null;
+    awards: string[] | null;
+    education: string | null;
+    equipment: any | null;
+    social_media: any | null;
+    business_hours: any | null;
+    languages: string[] | null;
+    service_areas: string[] | null;
+    insurance_info: string | null;
+    business_license: string | null;
+    service_types: string[] | null;
+    google_calendar_token: any | null;
+    ical_feed_token: string | null;
+    google_refresh_token: string | null;
+    google_account_email: string | null;
+    calcom_api_key: string | null;
+    google_access_token: string | null;
+    outlook_access_token: string | null;
+    auth_id: string | null;
+    stripe_status: string | null;
+    stripe_customer_id: string | null;
+    vendor_services?: VendorService[];
+    vendor_service_packages?: VendorServicePackage[];
+    vendor_reviews?: VendorReview[];
+    vendor_service_areas?: VendorServiceArea[];
+    vendor_languages?: VendorLanguage[];
+  }
+
+export interface VendorServiceArea {
   id: string;
-  user_id: string;
-  name: string;
-  phone: string | null;
-  years_experience: number;
-  specialties: string[] | null;
-  stripe_account_id: string | null;
-  created_at: string;
-  updated_at: string | null;
-  rating: number | null;
-  vendor_services: VendorService[] | null;
-  vendor_reviews: VendorReview[] | null;
-  vendor_service_packages: VendorServicePackage[] | null;
-  states: string[];
-  profile?: string | null;
-  profile_photo?: string | null;
-  vendor_service_areas?: { id: string; state: string; region: string | null }[];
+  vendor_id: string;
+  service_area_id: string;
+  state: string;
+  region: string;
+}
+
+export interface VendorLanguage {
+  id: string;
+  vendor_id: string;
+  language_id: string;
+  language: string;
+}
+
+export interface VendorGear {
+  id: string;
+  vendor_id: string;
+  gear_type: string;
+  brand: string;
+  model: string;
+  year: number | null;
+  condition: string;
+  submitted_at: string;
+  gear_rating: string | null;
+  review_notes: string;
+}
+
+export interface StyleTag {
+  id: number;
+  label: string;
+  description?: string;
+}
+
+export interface VendorStyleTag {
+  id: string;
+  vendor_id: string;
+  style_id: number;
+  label: string;
+  description?: string;
+}
+
+export interface VibeTag {
+  id: number;
+  label: string;
+  description?: string;
+}
+
+export interface VendorVibeTag {
+  id: string;
+  vendor_id: string;
+  vibe_id: number;
+  label: string;
+  description?: string;
 }

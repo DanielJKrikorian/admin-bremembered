@@ -113,6 +113,7 @@ export default function InvoicePage() {
   const [isDiscountPercentage, setIsDiscountPercentage] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<string>('sent'); // Default to 'sent'
 
   useEffect(() => {
     fetchData();
@@ -422,14 +423,18 @@ export default function InvoicePage() {
     }
   };
 
-  const filteredInvoices = invoices.filter(invoice =>
-    (invoice.recipient_type === 'couple' && invoice.couple_name
-      ? invoice.couple_name.toLowerCase().includes(searchTerm.toLowerCase())
-      : invoice.recipient_type === 'vendor' && invoice.vendor_name
-      ? invoice.vendor_name.toLowerCase().includes(searchTerm.toLowerCase())
-      : false) ||
-    invoice.id.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredInvoices = invoices
+    .filter(invoice => {
+      const matchesSearch = (invoice.recipient_type === 'couple' && invoice.couple_name
+        ? invoice.couple_name.toLowerCase().includes(searchTerm.toLowerCase())
+        : invoice.recipient_type === 'vendor' && invoice.vendor_name
+        ? invoice.vendor_name.toLowerCase().includes(searchTerm.toLowerCase())
+        : false) ||
+        invoice.id.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = filterStatus === 'all' || invoice.status === filterStatus;
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => b.total_amount - a.total_amount); // Sort by total_amount descending
 
   const getBookingDetails = (bookingId: string | undefined) => {
     if (!bookingId) return null;
@@ -476,15 +481,27 @@ export default function InvoicePage() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-semibold text-gray-900">Existing Invoices ({filteredInvoices.length})</h2>
-          <div className="relative w-full max-w-xs">
-            <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search invoices..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+          <div className="flex items-center space-x-4">
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search invoices..."
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All</option>
+              <option value="pending">Pending</option>
+              <option value="sent">Sent</option>
+              <option value="paid">Paid</option>
+            </select>
           </div>
         </div>
         {filteredInvoices.length === 0 ? (
@@ -522,7 +539,7 @@ export default function InvoicePage() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          invoice.status === 'paid' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'
+                          invoice.status === 'paid' ? 'bg-blue-100 text-blue-800' : invoice.status === 'sent' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'
                         }`}
                       >
                         {invoice.status}

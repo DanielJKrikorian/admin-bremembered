@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
@@ -114,9 +114,22 @@ export default function InvoicePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('sent'); // Default to 'sent'
+  const [recipientSearch, setRecipientSearch] = useState<string>(''); // Search term for recipient dropdown
+  const recipientDropdownRef = useRef<HTMLDivElement>(null); // Ref for dropdown click-outside handling
 
   useEffect(() => {
     fetchData();
+  }, []);
+
+  useEffect(() => {
+    // Close dropdown when clicking outside
+    const handleClickOutside = (event: MouseEvent) => {
+      if (recipientDropdownRef.current && !recipientDropdownRef.current.contains(event.target as Node)) {
+        setRecipientSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const fetchData = async () => {
@@ -454,6 +467,14 @@ export default function InvoicePage() {
     };
   };
 
+  const filteredRecipients = recipientType === 'couple'
+    ? couples.filter(c => !recipientSearch || `${c.partner1_name} ${c.partner2_name || ''}`.toLowerCase().includes(recipientSearch.toLowerCase()))
+    : vendors.filter(v => !recipientSearch || `${v.name} (${v.email})`.toLowerCase().includes(recipientSearch.toLowerCase()));
+
+  const selectedRecipient = recipientType === 'couple'
+    ? couples.find(c => c.id === recipientId)
+    : vendors.find(v => v.id === recipientId);
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -617,6 +638,7 @@ export default function InvoicePage() {
                             onChange={() => {
                               setRecipientType('couple');
                               setRecipientId(null);
+                              setRecipientSearch('');
                               setLineItems([]);
                             }}
                             className="mr-1"
@@ -630,6 +652,7 @@ export default function InvoicePage() {
                             onChange={() => {
                               setRecipientType('vendor');
                               setRecipientId(null);
+                              setRecipientSearch('');
                               setLineItems([]);
                             }}
                             className="mr-1"
@@ -642,24 +665,51 @@ export default function InvoicePage() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Select {recipientType === 'couple' ? 'Couple' : 'Vendor'}
                       </label>
-                      <select
-                        value={recipientId || ''}
-                        onChange={(e) => setRecipientId(e.target.value || null)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Select a {recipientType === 'couple' ? 'couple' : 'vendor'}</option>
-                        {recipientType === 'couple'
-                          ? couples.map(couple => (
-                              <option key={couple.id} value={couple.id}>
-                                {couple.partner1_name} {couple.partner2_name || ''}
-                              </option>
-                            ))
-                          : vendors.map(vendor => (
-                              <option key={vendor.id} value={vendor.id}>
-                                {vendor.name} ({vendor.email})
-                              </option>
+                      <div className="relative" ref={recipientDropdownRef}>
+                        <input
+                          type="text"
+                          value={recipientSearch}
+                          onChange={(e) => setRecipientSearch(e.target.value)}
+                          placeholder={`Search ${recipientType === 'couple' ? 'couples' : 'vendors'}...`}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          onFocus={() => setRecipientSearch('')} // Clear search when focusing to show all options
+                        />
+                        {recipientSearch !== '' && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-40 overflow-auto">
+                            {filteredRecipients.map(recipient => (
+                              <div
+                                key={recipient.id}
+                                onClick={() => {
+                                  setRecipientId(recipient.id);
+                                  setRecipientSearch(recipientType === 'couple' ? `${recipient.partner1_name} ${recipient.partner2_name || ''}` : `${recipient.name} (${recipient.email})`);
+                                }}
+                                className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                              >
+                                {recipientType === 'couple'
+                                  ? `${recipient.partner1_name} ${recipient.partner2_name || ''}`
+                                  : `${recipient.name} (${recipient.email})`}
+                              </div>
                             ))}
-                      </select>
+                          </div>
+                        )}
+                        {recipientId && !recipientSearch && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg">
+                            <div
+                              onClick={() => {
+                                setRecipientId(null);
+                                setRecipientSearch('');
+                              }}
+                              className="px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                            >
+                              {selectedRecipient
+                                ? recipientType === 'couple'
+                                  ? `${selectedRecipient.partner1_name} ${selectedRecipient.partner2_name || ''}`
+                                  : `${selectedRecipient.name} (${selectedRecipient.email})`
+                                : 'Select a recipient'}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div>
                       <h3 className="text-lg font-medium text-gray-900 mb-2">Line Items</h3>

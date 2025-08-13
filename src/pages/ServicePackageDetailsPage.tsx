@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Calendar, Edit, Save, Upload } from 'lucide-react';
+import { Calendar, Edit, Save, Upload, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
@@ -65,13 +65,12 @@ export default function ServicePackageDetailsPage() {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Validate file type and size
       const validTypes = ['image/png', 'image/jpeg', 'image/jpg'];
       if (!validTypes.includes(file.type)) {
         toast.error('Please upload a valid image (PNG, JPEG, JPG)');
         return;
       }
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      if (file.size > 5 * 1024 * 1024) {
         toast.error('Image size must be less than 5MB');
         return;
       }
@@ -94,11 +93,25 @@ export default function ServicePackageDetailsPage() {
         throw new Error('User not authenticated');
       }
 
+      // If there's an existing image, delete it first
+      if (packageData.primary_image) {
+        const fileName = packageData.primary_image.split('/').pop();
+        if (fileName) {
+          const { error: deleteError } = await supabase.storage
+            .from('service_packages_images')
+            .remove([fileName]);
+          if (deleteError) {
+            console.warn('Failed to delete existing image:', deleteError.message);
+            // Continue with upload even if deletion fails
+          }
+        }
+      }
+
+      // Upload new image
       const fileExt = imageFile.name.split('.').pop();
       const fileName = `${packageData.id}-${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
-      // Upload image to Supabase storage
       const { error: uploadError } = await supabase.storage
         .from('service_packages_images')
         .upload(filePath, imageFile, {
@@ -119,7 +132,7 @@ export default function ServicePackageDetailsPage() {
         throw new Error('Failed to get public URL for the image');
       }
 
-      // Update service_packages table with image URL
+      // Update service_packages table with new image URL
       const { error: updateError } = await supabase
         .from('service_packages')
         .update({ 
@@ -139,6 +152,61 @@ export default function ServicePackageDetailsPage() {
     } catch (error: any) {
       console.error('Error uploading image:', error);
       toast.error(error.message || 'Failed to upload image');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleImageDelete = async () => {
+    if (!packageData || !packageData.primary_image) {
+      toast.error('No image to delete');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      // Check authentication status
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('User not authenticated');
+      }
+
+      // Extract file name from public URL
+      const fileName = packageData.primary_image.split('/').pop();
+      if (!fileName) {
+        throw new Error('Invalid image URL');
+      }
+
+      // Delete image from storage
+      const { error: deleteError } = await supabase.storage
+        .from('service_packages_images')
+        .remove([fileName]);
+
+      if (deleteError) {
+        throw new Error(`Delete failed: ${deleteError.message}`);
+      }
+
+      // Update service_packages table to set primary_image to null
+      const { error: updateError } = await supabase
+        .from('service_packages')
+        .update({ 
+          primary_image: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', packageData.id);
+
+      if (updateError) {
+        throw new Error(`Database update failed: ${updateError.message}`);
+      }
+
+      setPackageData(prev => prev ? { ...prev, primary_image: null } : null);
+      setFormData(prev => prev ? { ...prev, primary_image: null } : null);
+      setImagePreview(null);
+      setImageFile(null);
+      toast.success('Image deleted successfully!');
+    } catch (error: any) {
+      console.error('Error deleting image:', error);
+      toast.error(error.message || 'Failed to delete image');
     } finally {
       setUploading(false);
     }
@@ -618,6 +686,16 @@ export default function ServicePackageDetailsPage() {
                   >
                     <Upload className="h-4 w-4 mr-1" />
                     {uploading ? 'Uploading...' : 'Upload Image'}
+                  </button>
+                )}
+                {packageData.primary_image && !imageFile && (
+                  <button
+                    onClick={handleImageDelete}
+                    className="inline-flex items-center px-4 py-2 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 disabled:opacity-50"
+                    disabled={uploading}
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    {uploading ? 'Deleting...' : 'Delete Image'}
                   </button>
                 )}
               </div>

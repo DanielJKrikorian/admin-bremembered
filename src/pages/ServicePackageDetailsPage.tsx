@@ -65,30 +65,61 @@ export default function ServicePackageDetailsPage() {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      // Validate file type and size
+      const validTypes = ['image/png', 'image/jpeg', 'image/jpg'];
+      if (!validTypes.includes(file.type)) {
+        toast.error('Please upload a valid image (PNG, JPEG, JPG)');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        toast.error('Image size must be less than 5MB');
+        return;
+      }
       setImageFile(file);
       setImagePreview(URL.createObjectURL(file));
     }
   };
 
   const handleImageUpload = async () => {
-    if (!imageFile || !packageData) return;
+    if (!imageFile || !packageData) {
+      toast.error('No image selected or package data missing');
+      return;
+    }
 
     setUploading(true);
     try {
+      // Check authentication status
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('User not authenticated');
+      }
+
       const fileExt = imageFile.name.split('.').pop();
       const fileName = `${packageData.id}-${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
+      // Upload image to Supabase storage
       const { error: uploadError } = await supabase.storage
         .from('service_packages_images')
-        .upload(filePath, imageFile);
+        .upload(filePath, imageFile, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
-      if (uploadError) throw uploadError;
+      if (uploadError) {
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
 
+      // Get public URL for the uploaded image
       const { data: { publicUrl } } = supabase.storage
         .from('service_packages_images')
         .getPublicUrl(filePath);
 
+      if (!publicUrl) {
+        throw new Error('Failed to get public URL for the image');
+      }
+
+      // Update service_packages table with image URL
       const { error: updateError } = await supabase
         .from('service_packages')
         .update({ 
@@ -97,7 +128,9 @@ export default function ServicePackageDetailsPage() {
         })
         .eq('id', packageData.id);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        throw new Error(`Database update failed: ${updateError.message}`);
+      }
 
       setPackageData(prev => prev ? { ...prev, primary_image: publicUrl } : null);
       setFormData(prev => prev ? { ...prev, primary_image: publicUrl } : null);
@@ -105,7 +138,7 @@ export default function ServicePackageDetailsPage() {
       toast.success('Image uploaded successfully!');
     } catch (error: any) {
       console.error('Error uploading image:', error);
-      toast.error('Failed to upload image');
+      toast.error(error.message || 'Failed to upload image');
     } finally {
       setUploading(false);
     }

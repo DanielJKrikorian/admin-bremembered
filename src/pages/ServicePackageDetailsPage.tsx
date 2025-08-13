@@ -70,8 +70,8 @@ export default function ServicePackageDetailsPage() {
         toast.error('Please upload a valid image (PNG, JPEG, JPG)');
         return;
       }
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error('Image size must be less than 5MB');
+      if (file.size > 50 * 1024 * 1024) { // Updated to 50MB limit
+        toast.error('Image size must be less than 50MB');
         return;
       }
       setImageFile(file);

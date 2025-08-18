@@ -48,6 +48,8 @@ import ProductDetailsPage from './pages/ProductDetailsPage';
 import InvoicePage from './pages/InvoicePage';
 import InvoiceDetailsPage from './pages/InvoiceDetailsPage';
 import ErrorBoundary from './components/ErrorBoundary';
+import AdminChatPage from './pages/AdminChatPage';
+import AdminChatDetailsPage from './pages/AdminChatDetailsPage.tsx';
 
 function App() {
   return (
@@ -211,6 +213,15 @@ function App() {
                 element={
                   <ErrorBoundary>
                     <MessageDetailsPage />
+                  </ErrorBoundary>
+                }
+              />
+              <Route path="chats" element={<AdminChatPage />} />
+              <Route
+                path="chats/:session_id"
+                element={
+                  <ErrorBoundary>
+                    <AdminChatDetailsPage />
                   </ErrorBoundary>
                 }
               />

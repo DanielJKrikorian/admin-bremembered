@@ -22,6 +22,7 @@ import {
   MessageSquare,
   ShoppingCart,
   PackageOpen,
+  HeadsetIcon,
 } from 'lucide-react';
 
 const navigation = [
@@ -38,6 +39,32 @@ const navigation = [
     ],
   },
   {
+    group: 'Communication',
+    items: [
+      { name: 'Send Emails', href: '/dashboard/send-emails', icon: Mail },
+      { name: 'Forum', href: '/dashboard/forum', icon: Mail },
+      { name: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
+     { name: 'Chat Bot', href: '/dashboard/chats', icon: HeadsetIcon },
+    ],
+  },
+  {
+    group: 'Orders & Payments',
+    items: [
+      { name: 'Orders', href: '/dashboard/orders', icon: ShoppingCart },
+      { name: 'Payments', href: '/dashboard/payments', icon: CreditCard },
+      { name: 'Invoices', href: '/dashboard/invoices', icon: FileText },
+    ],
+  },
+  {
+    group: 'Feedback & Support',
+    items: [
+      { name: 'Reviews', href: '/dashboard/reviews', icon: Calendar },
+      { name: 'Support Reviews', href: '/dashboard/support-reviews', icon: Calendar },
+      { name: 'FAQ', href: '/dashboard/faq', icon: HelpCircle },
+      { name: 'Issues', href: '/dashboard/issues', icon: AlertTriangle },
+    ],
+  },
+  {
     group: 'Events & Bookings',
     items: [
       { name: 'Bookings & Events', href: '/dashboard/bookings', icon: Calendar },
@@ -51,31 +78,6 @@ const navigation = [
     items: [
       { name: 'Service Packages', href: '/dashboard/service-packages', icon: Package },
       { name: 'Products', href: '/dashboard/products', icon: PackageOpen },
-    ],
-  },
-  {
-    group: 'Orders & Payments',
-    items: [
-      { name: 'Orders', href: '/dashboard/orders', icon: ShoppingCart },
-      { name: 'Payments', href: '/dashboard/payments', icon: CreditCard },
-      { name: 'Invoices', href: '/dashboard/invoices', icon: FileText },
-    ],
-  },
-  {
-    group: 'Communication',
-    items: [
-      { name: 'Send Emails', href: '/dashboard/send-emails', icon: Mail },
-      { name: 'Forum', href: '/dashboard/forum', icon: Mail },
-      { name: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
-    ],
-  },
-  {
-    group: 'Feedback & Support',
-    items: [
-      { name: 'Reviews', href: '/dashboard/reviews', icon: Calendar },
-      { name: 'Support Reviews', href: '/dashboard/support-reviews', icon: Calendar },
-      { name: 'FAQ', href: '/dashboard/faq', icon: HelpCircle },
-      { name: 'Issues', href: '/dashboard/issues', icon: AlertTriangle },
     ],
   },
   {

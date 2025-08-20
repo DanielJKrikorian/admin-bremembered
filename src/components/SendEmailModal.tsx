@@ -1,26 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
-import { Save } from 'lucide-react';
+import { Save, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
-interface Couple {
-  id: string;
-  name: string;
-  user_id: string | null;
-}
-
-interface Vendor {
-  id: string;
-  name: string;
-  user_id: string | null;
-}
-
-interface Lead {
+interface Recipient {
   id: string;
   name: string;
   email: string;
+  type: 'vendor' | 'couple' | 'lead' | 'blog_subscription' | 'custom';
+  weddingDate?: string; // Optional for couples
 }
 
 interface SendEmailModalProps {
@@ -30,126 +22,284 @@ interface SendEmailModalProps {
 }
 
 export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEmailModalProps) {
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [couples, setCouples] = useState<Couple[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [selectedVendor, setSelectedVendor] = useState<string>('');
-  const [selectedCouple, setSelectedCouple] = useState<string>('');
-  const [selectedLead, setSelectedLead] = useState<string>('');
-  const [recipientEmail, setRecipientEmail] = useState<string>('');
-  const [subject, setSubject] = useState<string>('');
-  const [body, setBody] = useState<string>('');
+  const [vendors, setVendors] = useState<Recipient[]>([]);
+  const [couples, setCouples] = useState<Recipient[]>([]);
+  const [leads, setLeads] = useState<Recipient[]>([]);
+  const [blogSubscribers, setBlogSubscribers] = useState<Recipient[]>([]);
+  const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [deselectedRecipients, setDeselectedRecipients] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const quillRef = useRef<ReactQuill>(null);
+
+  const quillModules = {
+    toolbar: [
+      [{ header: [1, 2, false] }],
+      ['bold', 'italic', 'underline', 'strike'],
+      [{ list: 'ordered' }, { list: 'bullet' }],
+      ['link'],
+      [{ color: [] }, { background: [] }],
+      [{ font: [] }],
+      [{ align: [] }],
+      ['clean'],
+    ],
+  };
 
   useEffect(() => {
     fetchOptions();
-  }, [selectedVendor, selectedCouple, selectedLead]);
+  }, []);
 
   const fetchOptions = async () => {
     try {
-      console.log('Fetching options started...');
       const vendorsPromise = supabase.from('vendors').select('id, name, user_id');
-      const couplesPromise = supabase.from('couples').select('id, name, user_id');
-      const leadsPromise = supabase.from('leads').select('id, name, email');
+      const couplesPromise = supabase.from('couples').select('id, name, user_id, wedding_date');
+      const leadsPromise = supabase.from('leads').select('id, name, email, partner_name');
+      const subscribersPromise = supabase
+        .from('blog_subscriptions')
+        .select('id, name, email')
+        .eq('status', 'subscribed')
+        .is('unsubscribed_at', null);
 
-      const [vendorsData, couplesData, leadsData] = await Promise.all([vendorsPromise, couplesPromise, leadsPromise]);
-      console.log('Vendors data:', vendorsData);
-      console.log('Couples data:', couplesData);
-      console.log('Leads data:', leadsData);
+      const [vendorsResult, couplesResult, leadsResult, subscribersResult] = await Promise.all([
+        vendorsPromise,
+        couplesPromise,
+        leadsPromise,
+        subscribersPromise,
+      ]);
 
-      if (vendorsData.error) throw new Error(`Vendors fetch error: ${vendorsData.error.message}`);
-      if (couplesData.error) throw new Error(`Couples fetch error: ${couplesData.error.message}`);
-      if (leadsData.error) throw new Error(`Leads fetch error: ${leadsData.error.message}`);
+      if (vendorsResult.error) throw vendorsResult.error;
+      if (couplesResult.error) throw couplesResult.error;
+      if (leadsResult.error) throw leadsResult.error;
+      if (subscribersResult.error) throw subscribersResult.error;
 
-      setVendors(vendorsData.data || []);
-      setCouples(couplesData.data || []);
-      setLeads(leadsData.data || []);
-      if (leadsData.data.length === 0) {
-        console.warn('No leads found in the leads table. Data should exist based on manual query.');
+      const userIds = [
+        ...vendorsResult.data.map((v) => v.user_id).filter((id): id is string => !!id),
+        ...couplesResult.data.map((c) => c.user_id).filter((id): id is string => !!id),
+      ];
+      let userEmails: { [key: string]: string } = {};
+      if (userIds.length > 0) {
+        const { data: users, error: usersError } = await supabase
+          .from('users')
+          .select('id, email')
+          .in('id', userIds);
+        if (usersError) {
+          console.warn(`Failed to fetch user emails: ${usersError.message}`);
+          toast.warn('Some user emails could not be fetched. Check database permissions.');
+        } else {
+          userEmails = users.reduce((acc: { [key: string]: string }, user: { id: string; email: string }) => {
+            acc[user.id] = user.email;
+            return acc;
+          }, {});
+        }
       }
 
-      // Update recipient email based on selection
-      if (selectedLead) {
-        const lead = leadsData.data.find(l => l.id === selectedLead);
-        setRecipientEmail(lead?.email || '');
-        console.log('Lead email set:', lead?.email);
-      } else if (selectedCouple) {
-        const couple = couplesData.data.find(c => c.id === selectedCouple);
-        if (couple?.user_id) {
-          const { data: user, error } = await supabase
-            .from('users')
-            .select('email')
-            .eq('id', couple.user_id)
-            .single();
-          if (error) console.error('User fetch error for couple:', error, 'User ID:', couple.user_id);
-          setRecipientEmail(user?.email || '');
-          console.log('Couple email set:', user?.email);
-        }
-      } else if (selectedVendor) {
-        const vendor = vendorsData.data.find(v => v.id === selectedVendor);
-        if (vendor?.user_id) {
-          const { data: user, error } = await supabase
-            .from('users')
-            .select('email')
-            .eq('id', vendor.user_id)
-            .single();
-          if (error) console.error('User fetch error for vendor:', error, 'User ID:', vendor.user_id);
-          setRecipientEmail(user?.email || '');
-          console.log('Vendor email set:', user?.email);
-        }
+      const vendorsData = vendorsResult.data
+        .map((vendor) => {
+          const email = vendor.user_id ? userEmails[vendor.user_id] : '';
+          if (!email) {
+            console.warn(`No email found for vendor ${vendor.id} (user_id: ${vendor.user_id})`);
+            return null;
+          }
+          return { id: vendor.id, name: vendor.name, email, type: 'vendor' };
+        })
+        .filter((v): v is Recipient => v !== null);
+
+      const couplesData = couplesResult.data
+        .map((couple) => {
+          const email = couple.user_id ? userEmails[couple.user_id] : '';
+          if (!email) {
+            console.warn(`No email found for couple ${couple.id} (user_id: ${couple.user_id})`);
+            return null;
+          }
+          return {
+            id: couple.id,
+            name: couple.name,
+            email,
+            type: 'couple',
+            weddingDate: couple.wedding_date ? new Date(couple.wedding_date).toLocaleDateString() : undefined,
+          };
+        })
+        .filter((c): v is Recipient => c !== null);
+
+      const leadsData = leadsResult.data.map((lead) => ({
+        id: lead.id,
+        name: lead.partner_name ? `${lead.name} & ${lead.partner_name}` : lead.name,
+        email: lead.email,
+        type: 'lead',
+      }));
+
+      const subscribersData = subscribersResult.data.map((sub) => ({
+        id: sub.id,
+        name: sub.name || 'Subscriber',
+        email: sub.email,
+        type: 'blog_subscription',
+      }));
+
+      setVendors(vendorsData);
+      setCouples(couplesData);
+      setLeads(leadsData);
+      setBlogSubscribers(subscribersData);
+
+      if (vendorsData.length === 0 && couplesData.length === 0 && leadsData.length === 0 && subscribersData.length === 0) {
+        toast.warn('No valid recipients found. Check user data and permissions.');
       }
     } catch (error: any) {
       console.error('Error in fetchOptions:', error);
-      toast.error('Failed to load options: ' + error.message);
+      toast.error('Failed to load recipients: ' + error.message);
     }
+  };
+
+  const handleGroupToggle = (group: string) => {
+    setSelectedGroups((prev) =>
+      prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group]
+    );
+    // Clear deselected recipients when toggling groups
+    setDeselectedRecipients(new Set());
+  };
+
+  const handleSelectAll = (group: string) => {
+    setDeselectedRecipients((prev) => {
+      const newSet = new Set(prev);
+      const groupRecipients = getGroupRecipients(group);
+      groupRecipients.forEach((r) => newSet.delete(r.id));
+      return newSet;
+    });
+  };
+
+  const handleUnselectAll = (group: string) => {
+    setDeselectedRecipients((prev) => {
+      const newSet = new Set(prev);
+      const groupRecipients = getGroupRecipients(group);
+      groupRecipients.forEach((r) => newSet.add(r.id));
+      return newSet;
+    });
+  };
+
+  const handleDeselectRecipient = (recipientId: string) => {
+    setDeselectedRecipients((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(recipientId)) {
+        newSet.delete(recipientId);
+      } else {
+        newSet.add(recipientId);
+      }
+      return newSet;
+    });
+  };
+
+  const getGroupRecipients = (group: string): Recipient[] => {
+    switch (group) {
+      case 'vendors':
+        return vendors;
+      case 'couples':
+        return couples;
+      case 'leads':
+        return leads;
+      case 'blog_subscriptions':
+        return blogSubscribers;
+      default:
+        return [];
+    }
+  };
+
+  const getAllRecipients = (): Recipient[] => [
+    ...vendors,
+    ...couples,
+    ...leads,
+    ...blogSubscribers,
+  ].filter((r, index, self) => self.findIndex((t) => t.email === r.email) === index);
+
+  const filteredRecipients = getAllRecipients().filter((recipient) =>
+    recipient.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const getSelectedRecipients = () => {
+    const allRecipients = getAllRecipients();
+    return allRecipients.filter((r) => !deselectedRecipients.has(r.id));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('Send Email button clicked');
     setLoading(true);
 
     try {
+      const recipients = getSelectedRecipients();
+      if (recipients.length === 0) {
+        throw new Error('Please select at least one recipient or enter an email address');
+      }
+
       const emailData = {
-        vendor_id: selectedVendor || null,
-        couple_id: selectedCouple || null,
-        lead_id: selectedLead || null,
-        email: recipientEmail || null,
+        recipients: recipients.map((r) => ({
+          id: r.id,
+          email: r.email,
+          name: r.name,
+          type: r.type,
+        })),
         subject,
         body,
       };
 
-      if (!selectedVendor && !selectedCouple && !selectedLead && !recipientEmail) {
-        throw new Error('Please select a recipient or enter an email address');
-      }
+      const { error, data, status } = await supabase.functions.invoke('admin-email-system', {
+        body: emailData,
+      });
 
-      const { error } = await supabase
-        .from('emails')
-        .insert(emailData);
+      console.log('Function response:', { error, data, status }); // Debug response
 
       if (error) throw error;
 
-      toast.success('Email sent successfully!');
+      toast.success(
+        data.errors?.length
+          ? `Sent ${data.sent.length} email(s), ${data.errors.length} failed`
+          : 'Email(s) sent successfully!'
+      );
       onEmailSent();
       onClose();
       setSubject('');
       setBody('');
-      setSelectedVendor('');
-      setSelectedCouple('');
-      setSelectedLead('');
+      setSelectedGroups([]);
+      setDeselectedRecipients(new Set());
       setRecipientEmail('');
+      setSearchQuery('');
     } catch (error: any) {
       console.error('Error sending email:', error);
-      toast.error(error.message || 'Failed to send email');
+      toast.error(`Failed to send email: ${error.message || 'Internal server error'}`);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleCancel = () => {
+    console.log('Cancel button clicked');
+    alert('Cancel button clicked - testing');
+    onClose();
+  };
+
+  const handleBackdropClick = () => {
+    console.log('Backdrop clicked, closing modal');
+    onClose();
+  };
+
+  const isSendDisabled = loading || getSelectedRecipients().length === 0 || !subject || !body;
+  const sendButtonTooltip = isSendDisabled
+    ? (getSelectedRecipients().length === 0
+        ? 'Select at least one recipient'
+        : !subject
+        ? 'Subject is required'
+        : !body
+        ? 'Email body is required'
+        : 'Sending in progress')
+    : '';
+
   if (!isOpen) return null;
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
-      <Dialog as="div" className="relative z-50" onClose={onClose}>
+      <Dialog as="div" className="relative z-50" onClose={handleBackdropClick}>
         <Transition.Child
           as={Fragment}
           enter="ease-out duration-300"
@@ -173,130 +323,153 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
-                <Dialog.Title as="h3" className="text-lg font-medium leading-6 text-gray-900">
+              <Dialog.Panel className="w-full max-w-2xl transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
+                <div className="flex justify-end mb-4">
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    className="inline-flex justify-center px-3 py-1 text-sm font-medium text-gray-700 bg-gray-200 border border-transparent rounded-md hover:bg-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-500 pointer-events-auto cancel-button"
+                    aria-label="Close"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <Dialog.Title as="h3" className="text-lg font-medium leading-6 text-gray-900 mb-4">
                   Send Email
                 </Dialog.Title>
-                <div className="mt-2">
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                      <label htmlFor="vendor" className="block text-sm font-medium text-gray-700">Vendor</label>
-                      <select
-                        id="vendor"
-                        value={selectedVendor}
-                        onChange={(e) => {
-                          setSelectedVendor(e.target.value);
-                          setSelectedCouple('');
-                          setSelectedLead('');
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Select Vendor</option>
-                        {vendors.map(vendor => (
-                          <option key={vendor.id} value={vendor.id}>{vendor.name}</option>
-                        ))}
-                      </select>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Select Recipient Groups</label>
+                    <div className="flex flex-wrap gap-4 mt-2">
+                      {['vendors', 'couples', 'leads', 'blog_subscriptions'].map((group) => (
+                        <div key={group} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedGroups.includes(group)}
+                            onChange={() => handleGroupToggle(group)}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          />
+                          <span className="text-sm text-gray-700">
+                            {group
+                              .replace('blog_subscriptions', 'Blog Subscribers')
+                              .replace('_', ' ')
+                              .split(' ')
+                              .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                              .join(' ')}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectAll(group)}
+                            className="text-xs text-blue-600 hover:text-blue-800 ml-2"
+                          >
+                            Select All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUnselectAll(group)}
+                            className="text-xs text-red-600 hover:text-red-800 ml-1"
+                          >
+                            Unselect All
+                          </button>
+                        </div>
+                      ))}
                     </div>
-                    <div>
-                      <label htmlFor="couple" className="block text-sm font-medium text-gray-700">Couple</label>
-                      <select
-                        id="couple"
-                        value={selectedCouple}
-                        onChange={(e) => {
-                          setSelectedCouple(e.target.value);
-                          setSelectedVendor('');
-                          setSelectedLead('');
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="">Select Couple</option>
-                        {couples.map(couple => (
-                          <option key={couple.id} value={couple.id}>{couple.name}</option>
-                        ))}
-                      </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Search All Recipients</label>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search all recipients..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <div className="mt-2 max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2">
+                      {filteredRecipients.map((recipient) => (
+                        <div key={recipient.id} className="flex items-center py-1">
+                          <input
+                            type="checkbox"
+                            checked={!deselectedRecipients.has(recipient.id)}
+                            onChange={() => handleDeselectRecipient(recipient.id)}
+                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                          />
+                          <span className="ml-2 text-sm text-gray-700">
+                            {recipient.name}
+                            {recipient.type === 'couple' && recipient.weddingDate && (
+                              <span className="ml-2 text-xs text-gray-500">({recipient.weddingDate})</span>
+                            )}
+                            {' ('}
+                            {recipient.email}
+                            {') - '}
+                            {recipient.type.replace('_', ' ')}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                    <div>
-                      <label htmlFor="lead" className="block text-sm font-medium text-gray-700">Lead</label>
-                      <select
-                        id="lead"
-                        value={selectedLead}
-                        onChange={(e) => {
-                          setSelectedLead(e.target.value);
-                          setSelectedVendor('');
-                          setSelectedCouple('');
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 z-50"
-                        key="lead-dropdown"
-                      >
-                        <option value="">Select Lead</option>
-                        {leads.length > 0 ? (
-                          leads.map(lead => (
-                            <option key={lead.id} value={lead.id}>{lead.name}</option>
-                          ))
-                        ) : (
-                          <option value="" disabled>No leads available</option>
-                        )}
-                      </select>
-                    </div>
-                    <div>
-                      <label htmlFor="recipientEmail" className="block text-sm font-medium text-gray-700">Recipient Email</label>
-                      <input
-                        type="email"
-                        id="recipientEmail"
-                        value={recipientEmail}
-                        onChange={(e) => setRecipientEmail(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="Enter email or auto-filled from selection"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="subject" className="block text-sm font-medium text-gray-700">Subject</label>
-                      <input
-                        type="text"
-                        id="subject"
-                        value={subject}
-                        onChange={(e) => setSubject(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="body" className="block text-sm font-medium text-gray-700">Body</label>
-                      <textarea
-                        id="body"
-                        value={body}
-                        onChange={(e) => setBody(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-32"
-                        required
-                      />
-                    </div>
-                    <div className="mt-4">
-                      <button
-                        type="submit"
-                        disabled={loading || (!selectedVendor && !selectedCouple && !selectedLead && !recipientEmail) || !subject || !body}
-                        className="inline-flex justify-center px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-500 disabled:bg-green-400 disabled:cursor-not-allowed"
-                      >
-                        {loading ? (
-                          <>
-                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                            Sending...
-                          </>
-                        ) : (
-                          <>
-                            <Save className="h-5 w-5 mr-2" />
-                            Send Email
-                          </>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onClose}
-                        className="ml-2 inline-flex justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 border border-transparent rounded-md hover:bg-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-gray-500"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
+                  </div>
+                  <div>
+                    <label htmlFor="recipientEmail" className="block text-sm font-medium text-gray-700">
+                      Single Recipient Email (Optional)
+                    </label>
+                    <input
+                      type="email"
+                      id="recipientEmail"
+                      value={recipientEmail}
+                      onChange={(e) => setRecipientEmail(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter a single email address"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="subject" className="block text-sm font-medium text-gray-700">Subject</label>
+                    <input
+                      type="text"
+                      id="subject"
+                      value={subject}
+                      onChange={(e) => setSubject(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="body" className="block text-sm font-medium text-gray-700">Body</label>
+                    <ReactQuill
+                      ref={quillRef}
+                      theme="snow"
+                      value={body}
+                      onChange={setBody}
+                      modules={quillModules}
+                      className="h-64 mb-6"
+                    />
+                  </div>
+                </div>
+                <div className="mt-8 flex justify-end space-x-2 z-60 button-container">
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={isSendDisabled}
+                      title={sendButtonTooltip}
+                      className="inline-flex justify-center px-4 py-2 text-sm font-medium text-white bg-green-600 border border-transparent rounded-md hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-500 disabled:bg-green-400 disabled:cursor-not-allowed pointer-events-auto"
+                    >
+                      {loading ? (
+                        <>
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="h-5 w-5 mr-2" />
+                          Send Email
+                        </>
+                      )}
+                    </button>
+                    {isSendDisabled && sendButtonTooltip && (
+                      <span className="absolute top-full mt-2 text-xs text-gray-600 bg-gray-100 p-2 rounded-md shadow-md">
+                        {sendButtonTooltip}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </Dialog.Panel>
             </Transition.Child>

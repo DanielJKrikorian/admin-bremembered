@@ -45,6 +45,7 @@ const navigation = [
       { name: 'Forum', href: '/dashboard/forum', icon: Mail },
       { name: 'Messages', href: '/dashboard/messages', icon: MessageSquare },
      { name: 'Chat Bot', href: '/dashboard/chats', icon: HeadsetIcon },
+     { name: 'Blog Posts', href: '/dashboard/blogposts', icon: FileText },
     ],
   },
   {

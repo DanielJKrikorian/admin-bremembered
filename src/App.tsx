@@ -47,6 +47,8 @@ import ProductsPage from './pages/ProductsPage';
 import ProductDetailsPage from './pages/ProductDetailsPage';
 import InvoicePage from './pages/InvoicePage';
 import InvoiceDetailsPage from './pages/InvoiceDetailsPage';
+import BlogPostManagement from './pages/BlogPostManagement';
+import BlogPostDetailsPage from './pages/BlogPostDetailsPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import AdminChatPage from './pages/AdminChatPage';
 import AdminChatDetailsPage from './pages/AdminChatDetailsPage.tsx';
@@ -225,6 +227,15 @@ function App() {
                   </ErrorBoundary>
                 }
               />
+              <Route path="blogposts" element={<BlogPostManagement />} />
+              <Route
+                  path="blogposts/:id"
+                  element={
+                    <ErrorBoundary>
+                      <BlogPostDetailsPage />
+                    </ErrorBoundary>
+                  }
+                />
               <Route path="messages/new" element={<MessagesPage />} />
               <Route path="orders" element={<OrdersPage />} />
               <Route

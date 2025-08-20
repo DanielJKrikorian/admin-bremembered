@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Calendar, Clock, MapPin, Download, Edit } from 'lucide-react'; // Added Edit icon
+import { Calendar, Clock, MapPin, Download, Edit, Music } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { format, parseISO, addMinutes } from 'date-fns';
 import toast from 'react-hot-toast';
+import { jsPDF } from 'jspdf';
 
 interface TimelineEvent {
   id: string;
@@ -14,6 +16,8 @@ interface TimelineEvent {
   type: string;
   duration_minutes: number | null;
   is_standard: boolean | null;
+  music_notes?: string; // Added
+  playlist_requests?: string; // Added
 }
 
 interface CoupleDetails {
@@ -80,6 +84,8 @@ export default function TimelineDetailsPage() {
           event_time: selectedEvent.event_time,
           location: selectedEvent.location,
           duration_minutes: selectedEvent.duration_minutes,
+          music_notes: selectedEvent.music_notes, // Added
+          playlist_requests: selectedEvent.playlist_requests, // Added
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedEvent.id);
@@ -94,29 +100,140 @@ export default function TimelineDetailsPage() {
     }
   };
 
-  const downloadPDF = () => {
-    const element = document.createElement('div');
-    element.innerHTML = `
-      <h1>Wedding Timeline</h1>
-      <div>${events.map(event => `
-        <div>
-          <h3>${event.title} (${new Date(`${event.event_date}T${event.event_time || '00:00'}`).toLocaleTimeString()} - ${event.duration_minutes ? `+${event.duration_minutes} min` : ''})</h3>
-          <p>${event.description || ''}</p>
-          <p>Location: ${event.location || 'N/A'}</p>
-        </div>
-      `).join('')}</div>
-    `;
-    element.style.padding = '20px';
+  const downloadPDF = async () => {
+    try {
+      const logoUrl =
+        "https://eecbrvehrhrvdzuutliq.supabase.co/storage/v1/object/public/public-1//2023_B%20Remembered%20Weddings_Refresh%20copy%202.png";
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+      const logoHeight = 40;
 
-    html2canvas(element).then(canvas => {
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF();
-      const imgProps = pdf.getImageProperties(imgData);
-      const pdfWidth = pdf.internal.pageSize.getWidth() - 40;
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-      pdf.addImage(imgData, 'PNG', 20, 20, pdfWidth, pdfHeight);
-      pdf.save(`timeline_${coupleDetails?.name || 'unnamed'}_${new Date().toISOString().replace(/[:.]/g, '-')}.pdf`);
-    });
+      // Load logo image
+      const logoImg = new Image();
+      logoImg.crossOrigin = "Anonymous";
+      logoImg.src = logoUrl;
+      await new Promise((resolve) => {
+        logoImg.onload = resolve;
+      });
+
+      // Add logo to PDF (centered)
+      const logoWidth = (logoImg.width * logoHeight) / logoImg.height;
+      const logoX = (pdfWidth - logoWidth) / 2;
+      pdf.addImage(logoImg, "PNG", logoX, margin, logoWidth, logoHeight);
+
+      // Add couple and wedding details
+      let position = margin + logoHeight + 10;
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(20);
+      pdf.text("Wedding Timeline", pdfWidth / 2, position, { align: "center" });
+      position += 10;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(14);
+      if (coupleDetails?.name) {
+        pdf.text(coupleDetails.name, pdfWidth / 2, position, { align: "center" });
+        position += 7;
+      }
+      pdf.setFontSize(12);
+      if (coupleDetails?.wedding_date) {
+        pdf.text(
+          `Date: ${format(parseISO(coupleDetails.wedding_date), "MMMM d, yyyy")}`,
+          pdfWidth / 2,
+          position,
+          { align: "center" }
+        );
+        position += 7;
+      }
+      if (coupleDetails?.venue_name) {
+        pdf.text(`Venue: ${coupleDetails.venue_name}`, pdfWidth / 2, position, {
+          align: "center",
+        });
+        position += 10;
+      }
+
+      // Add timeline events
+      pdf.setFont("helvetica", "bold");
+      pdf.text("SCHEDULE", margin, position);
+      position += 10;
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(11);
+      events.forEach((event) => {
+        if (position > pdfHeight - 20) {
+          pdf.addPage();
+          pdf.addImage(logoImg, "PNG", logoX, margin, logoWidth, logoHeight);
+          position = margin + logoHeight + 10;
+        }
+
+        const eventTime = event.event_time
+          ? format(parseISO(`2000-01-01T${event.event_time}`), "h:mm a")
+          : "N/A";
+        const endTime = event.duration_minutes && event.event_time
+          ? format(
+              addMinutes(parseISO(`2000-01-01T${event.event_time}`), event.duration_minutes),
+              "h:mm a"
+            )
+          : null;
+
+        pdf.setFont("helvetica", "bold");
+        pdf.text(`${eventTime}${endTime ? ` - ${endTime}` : ""}: ${event.title}`, margin, position);
+        position += 6;
+
+        if (event.description) {
+          pdf.setFont("helvetica", "normal");
+          const descriptionLines = pdf.splitTextToSize(event.description, pdfWidth - 2 * margin - 5);
+          pdf.text(descriptionLines, margin + 5, position);
+          position += 6 * descriptionLines.length;
+        }
+
+        if (event.location) {
+          pdf.setFont("helvetica", "normal");
+          pdf.text(`Location: ${event.location}`, margin + 5, position);
+          position += 6;
+        }
+
+        if (event.duration_minutes) {
+          pdf.setFont("helvetica", "normal");
+          pdf.text(`Duration: ${event.duration_minutes} minutes`, margin + 5, position);
+          position += 6;
+        }
+
+        if (event.music_notes || event.playlist_requests) {
+          pdf.setFont("helvetica", "bold");
+          pdf.text("Music Requests", margin + 5, position);
+          position += 6;
+
+          if (event.music_notes) {
+            pdf.setFont("helvetica", "normal");
+            const musicNotesLines = pdf.splitTextToSize(
+              `Songs: ${event.music_notes}`,
+              pdfWidth - 2 * margin - 5
+            );
+            pdf.text(musicNotesLines, margin + 10, position);
+            position += 6 * musicNotesLines.length;
+          }
+
+          if (event.playlist_requests) {
+            pdf.setFont("helvetica", "normal");
+            const playlistLines = pdf.splitTextToSize(
+              `Playlist: ${event.playlist_requests}`,
+              pdfWidth - 2 * margin - 5
+            );
+            pdf.text(playlistLines, margin + 10, position);
+            position += 6 * playlistLines.length;
+          }
+        }
+
+        position += 4;
+      });
+
+      pdf.save(`timeline_${coupleDetails?.name || "unnamed"}.pdf`);
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      toast.error("Failed to generate PDF");
+    }
   };
 
   if (isLoading) {
@@ -151,7 +268,7 @@ export default function TimelineDetailsPage() {
                       <div>
                         <div className="flex items-center">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {event.event_time ? new Date(`2000-01-01T${event.event_time}`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                            {event.event_time ? format(parseISO(`2000-01-01T${event.event_time}`), 'h:mm a') : 'N/A'}
                           </span>
                           <h3 className="ml-2 text-lg font-medium text-gray-900">
                             {event.title}
@@ -161,12 +278,12 @@ export default function TimelineDetailsPage() {
                           {event.description && <p>{event.description}</p>}
                           <div className="flex items-center">
                             <Calendar className="h-4 w-4 mr-1" />
-                            {new Date(event.event_date).toLocaleDateString()}
+                            {format(parseISO(event.event_date), 'MMMM d, yyyy')}
                           </div>
                           {event.event_time && (
                             <div className="flex items-center">
                               <Clock className="h-4 w-4 mr-1" />
-                              {new Date(`2000-01-01T${event.event_time}`).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {format(parseISO(`2000-01-01T${event.event_time}`), 'h:mm a')}
                             </div>
                           )}
                           {event.duration_minutes && (
@@ -179,6 +296,26 @@ export default function TimelineDetailsPage() {
                             <div className="flex items-center">
                               <MapPin className="h-4 w-4 mr-1" />
                               {event.location}
+                            </div>
+                          )}
+                          {(event.music_notes || event.playlist_requests) && (
+                            <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                              <div className="flex items-center mb-2">
+                                <Music className="w-4 h-4 text-purple-600 mr-2" />
+                                <span className="text-sm font-medium text-purple-900">
+                                  Music Requests
+                                </span>
+                              </div>
+                              {event.music_notes && (
+                                <p className="text-sm text-purple-800 mb-1">
+                                  <strong>Songs:</strong> {event.music_notes}
+                                </p>
+                              )}
+                              {event.playlist_requests && (
+                                <p className="text-sm text-purple-800">
+                                  <strong>Playlist:</strong> {event.playlist_requests}
+                                </p>
+                              )}
                             </div>
                           )}
                           {index < events.length - 1 && (
@@ -272,6 +409,24 @@ export default function TimelineDetailsPage() {
                             value={selectedEvent.duration_minutes || ''}
                             onChange={(e) => setSelectedEvent({ ...selectedEvent, duration_minutes: e.target.value ? parseInt(e.target.value) : null })}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Specific Song Requests</label>
+                          <textarea
+                            value={selectedEvent.music_notes || ''}
+                            onChange={(e) => setSelectedEvent({ ...selectedEvent, music_notes: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-24"
+                            placeholder="e.g., 'Bridal party entrance song: Perfect by Ed Sheeran', 'First dance: At Last by Etta James'"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Playlist Requests & Preferences</label>
+                          <textarea
+                            value={selectedEvent.playlist_requests || ''}
+                            onChange={(e) => setSelectedEvent({ ...selectedEvent, playlist_requests: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-32"
+                            placeholder="e.g., 'Cocktail hour: Jazz and acoustic covers', 'Reception: Mix of 80s, 90s, and current hits', 'Do NOT play: Country music'"
                           />
                         </div>
                         <div className="flex justify-end space-x-2">

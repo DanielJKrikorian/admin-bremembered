@@ -49,6 +49,8 @@ import InvoicePage from './pages/InvoicePage';
 import InvoiceDetailsPage from './pages/InvoiceDetailsPage';
 import BlogPostManagement from './pages/BlogPostManagement';
 import BlogPostDetailsPage from './pages/BlogPostDetailsPage';
+import VendorApplicationsPage from './pages/VendorApplicationsPage';
+import VendorApplicationDetailsPage from './pages/VendorApplicationDetailsPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import AdminChatPage from './pages/AdminChatPage';
 import AdminChatDetailsPage from './pages/AdminChatDetailsPage.tsx';
@@ -96,6 +98,15 @@ function App() {
                 element={
                   <ErrorBoundary>
                     <BookingDetailPage />
+                  </ErrorBoundary>
+                }
+              />
+                <Route path="vendor-application" element={<VendorApplicationsPage />} />
+              <Route
+                path="vendor-application/:id"
+                element={
+                  <ErrorBoundary>
+                    <VendorApplicationDetailsPage />
                   </ErrorBoundary>
                 }
               />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Plus, Upload, Eye, Phone, CreditCard, Star, Edit } from 'lucide-react';
+import { Building2, Plus, Upload, Phone, CreditCard, Star, Edit } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import toast from 'react-hot-toast';
@@ -38,11 +38,37 @@ export function VendorsPage() {
 
       if (vendorsError) throw vendorsError;
 
-      // Transform vendor_service_areas to extract unique states
+      // Fetch points for each vendor from vendor_rewards_points for 2025
+      const vendorIds = vendorsData?.map(vendor => vendor.id) || [];
+      const { data: pointsData, error: pointsError } = await supabase
+        .from('vendor_rewards_points')
+        .select('vendor_id, points')
+        .in('vendor_id', vendorIds)
+        .eq('year', 2025);
+
+      if (pointsError) throw pointsError;
+
+      // Aggregate points by vendor_id
+      const pointsByVendor = pointsData.reduce((acc, { vendor_id, points }) => {
+        acc[vendor_id] = (acc[vendor_id] || 0) + points;
+        return acc;
+      }, {} as Record<string, number>);
+
+      console.log('Points by vendor:', pointsByVendor);
+
+      // Transform vendor_service_areas to extract unique states and ensure points is defined
       const transformedVendors = vendorsData?.map(vendor => ({
         ...vendor,
         states: [...new Set(vendor.vendor_service_areas.map((area: { state: string }) => area.state))].sort(),
+        points: pointsByVendor[vendor.id] ?? 0, // Use nullish coalescing to ensure 0
       })) || [];
+
+      // Log vendors with missing points
+      transformedVendors.forEach(vendor => {
+        if (vendor.points === undefined) {
+          console.warn(`Vendor ${vendor.id} (${vendor.name}) has undefined points`);
+        }
+      });
 
       setVendors(transformedVendors);
     } catch (error: any) {
@@ -167,6 +193,9 @@ export function VendorsPage() {
                     Name
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Points
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Active Services
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -213,6 +242,9 @@ export function VendorsPage() {
                             </div>
                           )}
                         </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {vendor.points !== undefined ? vendor.points.toLocaleString() : '0'}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-1">

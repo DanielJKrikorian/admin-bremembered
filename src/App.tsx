@@ -45,6 +45,7 @@ import OrdersPage from './pages/OrdersPage';
 import OrderDetailsPage from './pages/OrderDetailsPage';
 import ProductsPage from './pages/ProductsPage';
 import ProductDetailsPage from './pages/ProductDetailsPage';
+import { AdminRewardsLeaderboard } from './pages/AdminRewardsLeaderboard';
 import InvoicePage from './pages/InvoicePage';
 import InvoiceDetailsPage from './pages/InvoiceDetailsPage';
 import BlogPostManagement from './pages/BlogPostManagement';
@@ -53,7 +54,7 @@ import VendorApplicationsPage from './pages/VendorApplicationsPage';
 import VendorApplicationDetailsPage from './pages/VendorApplicationDetailsPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import AdminChatPage from './pages/AdminChatPage';
-import AdminChatDetailsPage from './pages/AdminChatDetailsPage.tsx';
+import AdminChatDetailsPage from './pages/AdminChatDetailsPage';
 
 function App() {
   return (
@@ -83,7 +84,7 @@ function App() {
               />
               <Route path="vendor/:id/edit" element={<EditVendorPage />} />
               <Route path="couples" element={<CouplesPage />} />
-              <Route path="couplespage" element={<Navigate to="/dashboard/couples" replace />} /> {/* Fallback for old path */}
+              <Route path="couplespage" element={<Navigate to="/dashboard/couples" replace />} />
               <Route
                 path="couple/:id"
                 element={
@@ -101,7 +102,7 @@ function App() {
                   </ErrorBoundary>
                 }
               />
-                <Route path="vendor-application" element={<VendorApplicationsPage />} />
+              <Route path="vendor-application" element={<VendorApplicationsPage />} />
               <Route
                 path="vendor-application/:id"
                 element={
@@ -173,6 +174,7 @@ function App() {
                 }
               />
               <Route path="reviews" element={<ReviewsPage />} />
+              <Route path="rewards-leaderboard" element={<AdminRewardsLeaderboard />} />
               <Route path="support-reviews" element={<SupportReviewsPage />} />
               <Route path="contracts" element={<ContractsPage />} />
               <Route path="timelines" element={<TimelinesPage />} />
@@ -240,13 +242,13 @@ function App() {
               />
               <Route path="blogposts" element={<BlogPostManagement />} />
               <Route
-                  path="blogposts/:id"
-                  element={
-                    <ErrorBoundary>
-                      <BlogPostDetailsPage />
-                    </ErrorBoundary>
-                  }
-                />
+                path="blogposts/:id"
+                element={
+                  <ErrorBoundary>
+                    <BlogPostDetailsPage />
+                  </ErrorBoundary>
+                }
+              />
               <Route path="messages/new" element={<MessagesPage />} />
               <Route path="orders" element={<OrdersPage />} />
               <Route

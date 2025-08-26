@@ -48,6 +48,8 @@ import ProductDetailsPage from './pages/ProductDetailsPage';
 import { AdminRewardsLeaderboard } from './pages/AdminRewardsLeaderboard';
 import InvoicePage from './pages/InvoicePage';
 import InvoiceDetailsPage from './pages/InvoiceDetailsPage';
+import AdminInquiriesPage from './pages/AdminInquiriesPage';
+import AdminInquiryDetailsPage from './pages/AdminInquiryDetailsPage';
 import BlogPostManagement from './pages/BlogPostManagement';
 import BlogPostDetailsPage from './pages/BlogPostDetailsPage';
 import VendorApplicationsPage from './pages/VendorApplicationsPage';
@@ -99,6 +101,15 @@ function App() {
                 element={
                   <ErrorBoundary>
                     <BookingDetailPage />
+                  </ErrorBoundary>
+                }
+              />
+              <Route path="inquiries" element={<AdminInquiriesPage />} />
+              <Route
+                path="inquiries/:id"
+                element={
+                  <ErrorBoundary>
+                    <AdminInquiryDetailsPage />
                   </ErrorBoundary>
                 }
               />

@@ -10,12 +10,15 @@ interface VendorPoints {
   name: string;
   points: number;
   rewardsAchieved: number;
+  referralCount: number;
 }
 
 interface VendorReward {
   vendor_id: string;
   name: string;
   total_points: number;
+  referral_count: number;
+  referral_code: string | null;
   rewards: { points_required: number; prize: number }[];
 }
 
@@ -55,6 +58,37 @@ export function AdminRewardsLeaderboard() {
 
       if (vendorsError) throw vendorsError;
 
+      // Fetch referral codes
+      const { data: referralCodesData, error: referralCodesError } = await supabase
+        .from('vendor_referral_codes')
+        .select('vendor_id, code')
+        .eq('is_active', true)
+        .in('vendor_id', vendorIds);
+
+      if (referralCodesError) throw referralCodesError;
+
+      const referralCodesByVendor = referralCodesData.reduce((acc, { vendor_id, code }) => {
+        acc[vendor_id] = code;
+        return acc;
+      }, {} as Record<string, string>);
+
+      console.log('Referral codes by vendor:', referralCodesByVendor);
+
+      // Fetch referral usages
+      const { data: referralUsagesData, error: referralUsagesError } = await supabase
+        .from('referral_code_usages')
+        .select('vendor_id')
+        .in('vendor_id', vendorIds)
+        .gte('created_at', `${CURRENT_YEAR}-01-01T00:00:00Z`)
+        .lte('created_at', `${CURRENT_YEAR}-12-31T23:59:59Z`);
+
+      if (referralUsagesError) throw referralUsagesError;
+
+      const referralCounts = referralUsagesData.reduce((acc, { vendor_id }) => {
+        acc[vendor_id] = (acc[vendor_id] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
       // Aggregate points by vendor
       const pointsByVendor = pointsData.reduce((acc, { vendor_id, points }) => {
         acc[vendor_id] = (acc[vendor_id] || 0) + points;
@@ -69,7 +103,6 @@ export function AdminRewardsLeaderboard() {
 
       if (rewardsError) throw rewardsError;
 
-      // Aggregate rewards by vendor
       const rewardsByVendor = rewardsData.reduce((acc, reward) => {
         if (!acc[reward.vendor_id]) {
           acc[reward.vendor_id] = [];
@@ -78,23 +111,26 @@ export function AdminRewardsLeaderboard() {
         return acc;
       }, {} as Record<string, { points_required: number; prize: number }[]>);
 
-      // Build top vendors (top 10 by points)
+      // Build top vendors
       const vendorPoints = vendorsData.map(vendor => ({
         id: vendor.id,
         name: vendor.name,
         points: pointsByVendor[vendor.id] || 0,
         rewardsAchieved: (rewardsByVendor[vendor.id] || []).length,
+        referralCount: referralCounts[vendor.id] || 0,
       }));
 
       const sortedTopVendors = vendorPoints
         .sort((a, b) => b.points - a.points)
         .slice(0, 10);
 
-      // Build all vendors with rewards
+      // Build all vendors
       const allVendorsData = vendorsData.map(vendor => ({
         vendor_id: vendor.id,
         name: vendor.name,
         total_points: pointsByVendor[vendor.id] || 0,
+        referral_count: referralCounts[vendor.id] || 0,
+        referral_code: referralCodesByVendor[vendor.id] || 'No code',
         rewards: rewardsByVendor[vendor.id] || [],
       }));
 
@@ -161,6 +197,9 @@ export function AdminRewardsLeaderboard() {
                     Points
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Referrals
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Rewards Achieved
                   </th>
                 </tr>
@@ -180,6 +219,9 @@ export function AdminRewardsLeaderboard() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {vendor.points.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {vendor.referralCount}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {vendor.rewardsAchieved}
@@ -231,6 +273,12 @@ export function AdminRewardsLeaderboard() {
                     Vendor Name
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Referral Code
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Referrals
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Total Points
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -247,6 +295,12 @@ export function AdminRewardsLeaderboard() {
                   >
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {vendor.name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-mono">
+                      {vendor.referral_code || 'No code'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {vendor.referral_count}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {vendor.total_points.toLocaleString()}

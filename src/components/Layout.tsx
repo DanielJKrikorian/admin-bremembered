@@ -24,6 +24,7 @@ import {
   PackageOpen,
   HeadsetIcon,
   Medal,
+  Trophy,
 } from 'lucide-react';
 
 const navigation = [
@@ -35,7 +36,7 @@ const navigation = [
     group: 'Users & Leads',
     items: [
       { name: 'Vendors', href: '/dashboard/vendors', icon: Building2 },
-       { name: 'Rewards', href: '/dashboard/rewards-leaderboard', icon: Medal },
+       { name: 'Rewards', href: '/dashboard/rewards-leaderboard', icon: Trophy }, // Updated from /rewardsleaderboard to /rewards-leaderboard
       { name: 'Couples', href: '/dashboard/couples', icon: Heart }, // Updated from /couplespage to /couples
       { name: 'Leads', href: '/dashboard/leads', icon: Users },
       { name: 'Applications', href: '/dashboard/vendor-application', icon: Briefcase },

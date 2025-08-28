@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Calendar, Clock, MapPin, Download, Edit, Music } from 'lucide-react';
+import { Calendar, Clock, MapPin, Download, Edit, Music, Camera } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { format, parseISO, addMinutes } from 'date-fns';
 import toast from 'react-hot-toast';
@@ -16,8 +16,9 @@ interface TimelineEvent {
   type: string;
   duration_minutes: number | null;
   is_standard: boolean | null;
-  music_notes?: string; // Added
-  playlist_requests?: string; // Added
+  music_notes?: string;
+  playlist_requests?: string;
+  photo_shotlist?: string; // Added
 }
 
 interface CoupleDetails {
@@ -48,12 +49,13 @@ export default function TimelineDetailsPage() {
 
         const { data: timelineData, error: timelineError } = await supabase
           .from('timeline_events')
-          .select('*')
+          .select('id, title, description, event_date, event_time, location, type, duration_minutes, is_standard, music_notes, playlist_requests, photo_shotlist')
           .eq('couple_id', id)
           .order('event_date', { ascending: true })
           .order('event_time', { ascending: true });
         if (timelineError) throw timelineError;
 
+        console.log("Fetched events:", timelineData); // Debugging: Log fetched events
         setCoupleDetails(coupleData);
         setEvents(timelineData || []);
       } catch (error) {
@@ -84,8 +86,9 @@ export default function TimelineDetailsPage() {
           event_time: selectedEvent.event_time,
           location: selectedEvent.location,
           duration_minutes: selectedEvent.duration_minutes,
-          music_notes: selectedEvent.music_notes, // Added
-          playlist_requests: selectedEvent.playlist_requests, // Added
+          music_notes: selectedEvent.music_notes,
+          playlist_requests: selectedEvent.playlist_requests,
+          photo_shotlist: selectedEvent.photo_shotlist, // Added
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedEvent.id);
@@ -226,6 +229,20 @@ export default function TimelineDetailsPage() {
           }
         }
 
+        if (event.photo_shotlist) {
+          pdf.setFont("helvetica", "bold");
+          pdf.text("Photo Shotlist", margin + 5, position);
+          position += 6;
+
+          pdf.setFont("helvetica", "normal");
+          const shotlistLines = pdf.splitTextToSize(
+            `Must-have shots: ${event.photo_shotlist}`,
+            pdfWidth - 2 * margin - 5
+          );
+          pdf.text(shotlistLines, margin + 10, position);
+          position += 6 * shotlistLines.length;
+        }
+
         position += 4;
       });
 
@@ -318,6 +335,15 @@ export default function TimelineDetailsPage() {
                               )}
                             </div>
                           )}
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+                            <div className="flex items-center space-x-2 mb-2">
+                              <Camera className="w-4 h-4 text-blue-600" />
+                              <span className="font-medium text-blue-900">Photo Shotlist</span>
+                            </div>
+                            <p className="text-blue-700 text-sm">
+                              <strong>Must-have shots:</strong> {event.photo_shotlist || "No shotlist provided"}
+                            </p>
+                          </div>
                           {index < events.length - 1 && (
                             <div>
                               {(() => {
@@ -427,6 +453,15 @@ export default function TimelineDetailsPage() {
                             onChange={(e) => setSelectedEvent({ ...selectedEvent, playlist_requests: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-32"
                             placeholder="e.g., 'Cocktail hour: Jazz and acoustic covers', 'Reception: Mix of 80s, 90s, and current hits', 'Do NOT play: Country music'"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700">Photo Shotlist</label>
+                          <textarea
+                            value={selectedEvent.photo_shotlist || ''}
+                            onChange={(e) => setSelectedEvent({ ...selectedEvent, photo_shotlist: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 h-24"
+                            placeholder="e.g., 'Bride and groom portrait, Family group shot, Cake cutting close-up'"
                           />
                         </div>
                         <div className="flex justify-end space-x-2">

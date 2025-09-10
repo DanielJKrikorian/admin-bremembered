@@ -579,36 +579,20 @@ export default function CoupleDetailPage() {
     toast.error('Invalid or missing email address for this couple.');
     return;
   }
-  if (!process.env.VITE_SUPABASE_ANON_KEY) {
-    console.error('REACT_APP_EDGE_FUNCTION_API_KEY is not set');
-    toast.error('Configuration error: API key is missing');
-    return;
-  }
   try {
     console.log('Sending login email with body:', {
       user_id: couple.user_id,
       type: 'login',
       output: couple.name,
-      api_key: process.env.VITE_SUPABASE_ANON_KEY,
     });
-    const response = await fetch('https://eecbrvehrhrvdzuutliq.supabase.co/functions/v1/send-email', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        user_id: couple.user_id,
-        type: 'login',
-        output: couple.name,
-        api_key: process.env.VITE_SUPABASE_ANON_KEY,
-      }),
+    const response = await supabase.functions.invoke('send-email', {
+      body: { user_id: couple.user_id, type: 'login', output: couple.name },
     });
-    const responseData = await response.json();
-    if (!response.ok) {
-      console.error('Edge Function response:', responseData);
-      throw new Error(responseData.error || 'Failed to send email');
+    if (response.error) {
+      console.error('Edge Function response:', response.error);
+      throw new Error(response.error.message || 'Failed to send email');
     }
-    console.log('Edge Function success:', responseData);
+    console.log('Edge Function success:', response.data);
     toast.success('Login email sent! Check your inbox or spam folder.');
   } catch (error: any) {
     console.error('Error sending login email:', error);

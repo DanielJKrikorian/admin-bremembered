@@ -579,7 +579,7 @@ export default function CoupleDetailPage() {
     toast.error('Invalid or missing email address for this couple.');
     return;
   }
-  if (!process.env.REACT_APP_EDGE_FUNCTION_API_KEY) {
+  if (!process.env.VITE_SUPABASE_ANON_KEY) {
     console.error('REACT_APP_EDGE_FUNCTION_API_KEY is not set');
     toast.error('Configuration error: API key is missing');
     return;
@@ -589,7 +589,7 @@ export default function CoupleDetailPage() {
       user_id: couple.user_id,
       type: 'login',
       output: couple.name,
-      api_key: process.env.REACT_APP_EDGE_FUNCTION_API_KEY,
+      api_key: process.env.VITE_SUPABASE_ANON_KEY,
     });
     const response = await fetch('https://eecbrvehrhrvdzuutliq.supabase.co/functions/v1/send-email', {
       method: 'POST',
@@ -600,7 +600,7 @@ export default function CoupleDetailPage() {
         user_id: couple.user_id,
         type: 'login',
         output: couple.name,
-        api_key: process.env.REACT_APP_EDGE_FUNCTION_API_KEY,
+        api_key: process.env.VITE_SUPABASE_ANON_KEY,
       }),
     });
     const responseData = await response.json();

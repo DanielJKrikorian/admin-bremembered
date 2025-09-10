@@ -575,21 +575,33 @@ export default function CoupleDetailPage() {
   };
 
   const handleSendLoginEmail = async () => {
-    if (!couple?.user_id || !coupleEmail || !isValidEmail(coupleEmail)) {
-      toast.error('Invalid or missing email address for this couple.');
-      return;
+  if (!couple?.user_id || !coupleEmail || !isValidEmail(coupleEmail)) {
+    toast.error('Invalid or missing email address for this couple.');
+    return;
+  }
+  try {
+    const response = await fetch('https://eecbrvehrhrvdzuutliq.supabase.co/functions/v1/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        user_id: couple.user_id,
+        type: 'login',
+        output: couple.name,
+        api_key: process.env.REACT_APP_EDGE_FUNCTION_API_KEY, // Custom API key
+      }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to send email');
     }
-    try {
-      const response = await supabase.functions.invoke('send-email', {
-        body: { user_id: coupleEmail, type: 'login' },
-      });
-      if (response.error) throw response.error;
-      toast.success('Login email sent! Check your inbox or spam folder.');
-    } catch (error: any) {
-      console.error('Error sending login email:', error);
-      toast.error(`Failed to send login email: ${error.message}`);
-    }
-  };
+    toast.success('Login email sent! Check your inbox or spam folder.');
+  } catch (error: any) {
+    console.error('Error sending login email:', error);
+    toast.error(`Failed to send login email: ${error.message}`);
+  }
+};
 
   const getStatusIcon = (status: string) => {
     switch (status.toLowerCase()) {

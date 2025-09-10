@@ -580,6 +580,12 @@ export default function CoupleDetailPage() {
     return;
   }
   try {
+    console.log('Sending login email with body:', {
+      user_id: couple.user_id,
+      type: 'login',
+      output: couple.name,
+      api_key: process.env.REACT_APP_EDGE_FUNCTION_API_KEY,
+    });
     const response = await fetch('https://eecbrvehrhrvdzuutliq.supabase.co/functions/v1/send-email', {
       method: 'POST',
       headers: {
@@ -589,13 +595,15 @@ export default function CoupleDetailPage() {
         user_id: couple.user_id,
         type: 'login',
         output: couple.name,
-        api_key: process.env.REACT_APP_EDGE_FUNCTION_API_KEY, // Custom API key
+        api_key: process.env.REACT_APP_EDGE_FUNCTION_API_KEY,
       }),
     });
+    const responseData = await response.json();
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to send email');
+      console.error('Edge Function response:', responseData);
+      throw new Error(responseData.error || 'Failed to send email');
     }
+    console.log('Edge Function success:', responseData);
     toast.success('Login email sent! Check your inbox or spam folder.');
   } catch (error: any) {
     console.error('Error sending login email:', error);

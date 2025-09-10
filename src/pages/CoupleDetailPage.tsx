@@ -579,6 +579,11 @@ export default function CoupleDetailPage() {
     toast.error('Invalid or missing email address for this couple.');
     return;
   }
+  if (!process.env.REACT_APP_EDGE_FUNCTION_API_KEY) {
+    console.error('REACT_APP_EDGE_FUNCTION_API_KEY is not set');
+    toast.error('Configuration error: API key is missing');
+    return;
+  }
   try {
     console.log('Sending login email with body:', {
       user_id: couple.user_id,

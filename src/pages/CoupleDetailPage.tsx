@@ -555,29 +555,28 @@ export default function CoupleDetailPage() {
   };
 
   const handleSendLoginEmail = async () => {
-    if (!couple?.user_id || !coupleEmail || !isValidEmail(coupleEmail)) {
-      toast.error('Invalid or missing email address for this couple.');
-      return;
+  if (!couple?.user_id || !coupleEmail || !isValidEmail(coupleEmail)) {
+    toast.error('Invalid or missing email address for this couple.');
+    return;
+  }
+  try {
+    console.log('Requesting magic link email via edge function:', coupleEmail);
+    const res = await fetch('/api/send-magic-link', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: coupleEmail }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Failed: ${res.statusText}`);
     }
-    try {
-      console.log('Sending magic link email to:', coupleEmail);
-      const { error } = await supabase.auth.signInWithOtp({
-        email: coupleEmail,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/confirm`,
-        },
-      });
-      if (error) {
-        console.error('Error sending magic link:', error);
-        throw new Error(error.message || 'Failed to send magic link email');
-      }
-      console.log('Magic link email sent successfully');
-      toast.success('Magic link email sent! Check your inbox or spam folder.');
-    } catch (error: any) {
-      console.error('Error sending magic link email:', error);
-      toast.error(`Failed to send magic link email: ${error.message}`);
-    }
-  };
+
+    toast.success('Magic link email sent via Resend!');
+  } catch (error: any) {
+    console.error('Error sending magic link email:', error);
+    toast.error(`Failed to send magic link email: ${error.message}`);
+  }
+};
 
   const getStatusIcon = (status: string) => {
     switch (status.toLowerCase()) {

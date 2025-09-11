@@ -561,11 +561,19 @@ export default function CoupleDetailPage() {
   }
   try {
     console.log('Requesting magic link email via edge function:', coupleEmail);
-    const res = await fetch('/api/send-magic-link', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: coupleEmail }),
-    });
+    const res = await fetch(
+  'https://eecbrvehrhrvdzuutliq.supabase.co/functions/v1/send-email',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: process.env.VITE_SUPABASE_ANON_KEY!,
+      Authorization: `Bearer ${process.env.VITE_SUPABASE_ANON_KEY!}`,
+    },
+    body: JSON.stringify({ email: coupleEmail }),
+  }
+);
+
 
     if (!res.ok) {
       throw new Error(`Failed: ${res.statusText}`);

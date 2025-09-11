@@ -143,7 +143,6 @@ export default function CoupleDetailPage() {
     try {
       setLoading(true);
       if (!id) throw new Error('Couple ID is undefined');
-
       const { data: coupleData, error: coupleError } = await supabase
         .from('couples')
         .select(`
@@ -152,7 +151,6 @@ export default function CoupleDetailPage() {
         `)
         .eq('id', id)
         .single();
-
       if (coupleError) {
         console.error('Couple fetch error:', coupleError);
         throw coupleError;
@@ -180,7 +178,6 @@ export default function CoupleDetailPage() {
         venue_email: '',
         venue_contact_name: '',
       });
-
       if (coupleData.user_id) {
         const { data: userData, error: userError } = await supabase
           .from('users')
@@ -198,7 +195,6 @@ export default function CoupleDetailPage() {
           toast.warn('No email found for this couple in users table.');
         }
       }
-
       if (coupleData.venue_id) {
         const { data: venueData, error: venueError } = await supabase
           .from('venues')
@@ -212,7 +208,6 @@ export default function CoupleDetailPage() {
         console.log('Fetched venue:', venueData);
         setVenue(venueData);
       }
-
       const { data: bookingsData, error: bookingsError } = await supabase
         .from('bookings')
         .select(`
@@ -224,7 +219,6 @@ export default function CoupleDetailPage() {
         throw bookingsError;
       }
       console.log('Fetched bookings:', bookingsData);
-
       let bookingsWithDetails: Booking[] = [];
       if (bookingsData && bookingsData.length > 0) {
         const vendorIds = [...new Set(bookingsData.map(b => b.vendor_id).filter(id => id))];
@@ -242,7 +236,6 @@ export default function CoupleDetailPage() {
             vendorMap = new Map(vendorsData?.map(v => [v.id, { name: v.name, phone: v.phone, user_id: v.user_id }]) || []);
           }
         }
-
         const vendorUserIds = [...new Set([...vendorMap.values()].map(v => v.user_id).filter(id => id))];
         let emailMap = new Map<string, string | null>();
         if (vendorUserIds.length > 0) {
@@ -258,7 +251,6 @@ export default function CoupleDetailPage() {
             emailMap = new Map(usersData?.map(u => [u.id, u.email]) || []);
           }
         }
-
         const packageIds = [...new Set(bookingsData.map(b => b.package_id).filter(id => id))];
         let packageMap = new Map<string, { name: string; description: string | null; price: number | null }>();
         if (packageIds.length > 0) {
@@ -274,7 +266,6 @@ export default function CoupleDetailPage() {
             packageMap = new Map(packagesData?.map(p => [p.id, { name: p.name, description: p.description, price: p.price }]) || []);
           }
         }
-
         const venueIds = [...new Set(bookingsData.map(b => b.venue_id).filter(id => id))];
         let venueMap = new Map<string, { name: string; address: string | null }>();
         if (venueIds.length > 0) {
@@ -296,7 +287,6 @@ export default function CoupleDetailPage() {
             ]) || []);
           }
         }
-
         bookingsWithDetails = bookingsData.map(b => ({
           id: b.id,
           couple_id: b.couple_id,
@@ -321,7 +311,6 @@ export default function CoupleDetailPage() {
       }
       setBookings(bookingsWithDetails);
       console.log('Bookings with details:', bookingsWithDetails);
-
       const packageIdsForDisplay = bookingsData?.map(b => b.package_id).filter(id => id) || [];
       if (packageIdsForDisplay.length > 0) {
         const { data: packagesData, error: packagesError } = await supabase
@@ -338,7 +327,6 @@ export default function CoupleDetailPage() {
           setServicePackages(packagesData || []);
         }
       }
-
       const bookingIds = bookingsData?.map(b => b.id) || [];
       if (bookingIds.length > 0) {
         const { data: paymentsData, error: paymentsError } = await supabase
@@ -352,7 +340,6 @@ export default function CoupleDetailPage() {
         console.log('Fetched payments:', paymentsData);
         setPayments(paymentsData || []);
       }
-
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
         .select('id, couple_id, start_time, end_time, type, title, created_at')
@@ -393,7 +380,6 @@ export default function CoupleDetailPage() {
 
   const handleSaveField = async (field: string) => {
     if (!couple) return;
-
     setLoading(true);
     try {
       const updateData: Partial<Couple> = {};
@@ -436,17 +422,14 @@ export default function CoupleDetailPage() {
         default:
           return;
       }
-
       const { error } = await supabase
         .from('couples')
         .update(updateData)
         .eq('id', couple.id);
-
       if (error) {
         console.error('Update error:', error);
         throw error;
       }
-
       setCouple(prev => prev ? { ...prev, ...updateData } : null);
       if (field === 'venue' && formData.venue_id) {
         const { data: venueData } = await supabase
@@ -523,16 +506,13 @@ export default function CoupleDetailPage() {
         updated_at: new Date().toISOString(),
         booking_count: 0,
       };
-
       const { error } = await supabase
         .from('venues')
         .insert(newVenue);
-
       if (error) {
         console.error('Add venue error:', error);
         throw error;
       }
-
       setFormData({
         ...formData,
         venue_id: newVenue.id,
@@ -575,30 +555,29 @@ export default function CoupleDetailPage() {
   };
 
   const handleSendLoginEmail = async () => {
-  if (!couple?.user_id || !coupleEmail || !isValidEmail(coupleEmail)) {
-    toast.error('Invalid or missing email address for this couple.');
-    return;
-  }
-  try {
-    console.log('Sending login email with body:', {
-      user_id: couple.user_id,
-      type: 'login',
-      output: couple.name,
-    });
-    const response = await supabase.functions.invoke('send-email', {
-      body: { user_id: couple.user_id, type: 'login', output: couple.name },
-    });
-    if (response.error) {
-      console.error('Edge Function response:', response.error);
-      throw new Error(response.error.message || 'Failed to send email');
+    if (!couple?.user_id || !coupleEmail || !isValidEmail(coupleEmail)) {
+      toast.error('Invalid or missing email address for this couple.');
+      return;
     }
-    console.log('Edge Function success:', response.data);
-    toast.success('Login email sent! Check your inbox or spam folder.');
-  } catch (error: any) {
-    console.error('Error sending login email:', error);
-    toast.error(`Failed to send login email: ${error.message}`);
-  }
-};
+    try {
+      console.log('Sending magic link email to:', coupleEmail);
+      const { error } = await supabase.auth.signInWithOtp({
+        email: coupleEmail,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/confirm`,
+        },
+      });
+      if (error) {
+        console.error('Error sending magic link:', error);
+        throw new Error(error.message || 'Failed to send magic link email');
+      }
+      console.log('Magic link email sent successfully');
+      toast.success('Magic link email sent! Check your inbox or spam folder.');
+    } catch (error: any) {
+      console.error('Error sending magic link email:', error);
+      toast.error(`Failed to send magic link email: ${error.message}`);
+    }
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status.toLowerCase()) {
@@ -712,7 +691,6 @@ export default function CoupleDetailPage() {
           </button>
         </div>
       </div>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
           <User className="h-5 w-5 text-blue-600 mr-2" />
@@ -1126,7 +1104,6 @@ export default function CoupleDetailPage() {
           )
         )}
       </div>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
           <MapPin className="h-5 w-5 text-blue-600 mr-2" />
@@ -1368,7 +1345,6 @@ export default function CoupleDetailPage() {
           </div>
         )}
       </div>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
           <Calendar className="h-5 w-5 text-blue-600 mr-2" />
@@ -1440,7 +1416,6 @@ export default function CoupleDetailPage() {
           </div>
         )}
       </div>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
           <Calendar className="h-5 w-5 text-blue-600 mr-2" />
@@ -1511,7 +1486,6 @@ export default function CoupleDetailPage() {
           </div>
         )}
       </div>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
           <Package className="h-5 w-5 text-blue-600 mr-2" />
@@ -1560,7 +1534,6 @@ export default function CoupleDetailPage() {
           </div>
         )}
       </div>
-
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
           <CreditCard className="h-5 w-5 text-blue-600 mr-2" />

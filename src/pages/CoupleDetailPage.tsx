@@ -600,7 +600,6 @@ export default function CoupleDetailPage() {
   }
 };
 
-
   const getStatusIcon = (status: string) => {
     switch (status.toLowerCase()) {
       case 'confirmed': return <Check className="h-4 w-4 text-green-600" />;

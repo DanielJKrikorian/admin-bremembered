@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Users, Heart, Calendar, CreditCard, Package, Book, UserPlus } from 'lucide-react';
+import { Users, Heart, Calendar, CreditCard, Package, Book, UserPlus, DollarSign } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+// Function to format number with commas
+const formatNumberWithCommas = (number: number) => {
+  return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+};
 
 interface StatsCardProps {
   title: string;
@@ -68,19 +73,22 @@ export function Dashboard() {
     totalVendors: '0',
     activeCouples: '0',
     totalBookings: '0',
-    totalRevenue: '$0.00',
+    depositRevenue: '$0.00',
+    finalPaymentRevenue: '$0.00',
   });
   const [changes, setChanges] = useState({
     vendorsChange: '0%',
     couplesChange: '0%',
     bookingsChange: '0%',
-    revenueChange: '0%',
+    depositRevenueChange: '0%',
+    finalPaymentRevenueChange: '0%',
   });
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch stats
+        // Define time ranges
+        const currentYearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
         const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
         const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -100,7 +108,7 @@ export function Dashboard() {
           : '0%';
         const vendorsChangeType = recentVendors >= prevVendors ? 'positive' : 'negative';
 
-        // Active Couples (assuming all are active)
+        // Active Couples
         const { count: couplesCount } = await supabase.from('couples').select('*', { count: 'exact' });
         const { count: recentCouples } = await supabase
           .from('couples')
@@ -132,36 +140,79 @@ export function Dashboard() {
           : '0%';
         const bookingsChangeType = recentBookings >= prevBookings ? 'positive' : 'negative';
 
-        // Total Revenue (store_orders.total_amount + bookings.amount)
-        const { data: ordersData } = await supabase
-          .from('store_orders')
-          .select('total_amount')
-          .gte('created_at', twoWeeksAgo);
-        const { data: bookingsData } = await supabase
+        // Revenue Calculations
+        // 1. Deposit Revenue (platform_deposit_share for bookings of events created this year)
+        const { data: eventsCreatedThisYear } = await supabase
+          .from('events')
+          .select('id')
+          .gte('created_at', currentYearStart);
+        
+        const eventIdsThisYear = eventsCreatedThisYear?.map(event => event.id) || [];
+        
+        const { data: depositBookings } = await supabase
           .from('bookings')
-          .select('amount')
-          .gte('created_at', twoWeeksAgo);
-        const recentRevenue = (ordersData?.reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0) +
-          (bookingsData?.reduce((sum, booking) => sum + (booking.amount || 0), 0) || 0);
-        const prevRevenue = (ordersData?.filter(order => order.created_at < oneWeekAgo).reduce((sum, order) => sum + (order.total_amount || 0), 0) || 0) +
-          (bookingsData?.filter(booking => booking.created_at < oneWeekAgo).reduce((sum, booking) => sum + (booking.amount || 0), 0) || 0);
-        const totalRevenue = (recentRevenue / 100).toFixed(2);
-        const revenueChange = prevRevenue
-          ? `${(((recentRevenue - prevRevenue) / prevRevenue) * 100).toFixed(0)}%`
+          .select('platform_deposit_share')
+          .in('event_id', eventIdsThisYear)
+          .gte('created_at', currentYearStart);
+        
+        const depositRevenue = depositBookings?.reduce((sum, booking) => sum + (booking.platform_deposit_share || 0), 0) || 0;
+        
+        // 2. Final Payment Revenue (platform_final_share for bookings of events starting this year with final_payment_status = 'paid')
+        const { data: eventsStartingThisYear } = await supabase
+          .from('events')
+          .select('id')
+          .gte('start_time', currentYearStart);
+        
+        const eventIdsStartingThisYear = eventsStartingThisYear?.map(event => event.id) || [];
+        
+        const { data: finalBookings } = await supabase
+          .from('bookings')
+          .select('platform_final_share')
+          .in('event_id', eventIdsStartingThisYear)
+          .eq('final_payment_status', 'paid');
+        
+        const finalPaymentRevenue = finalBookings?.reduce((sum, booking) => sum + (booking.platform_final_share || 0), 0) || 0;
+
+        // Calculate revenue changes
+        const { data: prevDepositBookings } = await supabase
+          .from('bookings')
+          .select('platform_deposit_share')
+          .in('event_id', eventIdsThisYear)
+          .gte('created_at', twoWeeksAgo)
+          .lt('created_at', oneWeekAgo);
+        
+        const prevDepositRevenue = prevDepositBookings?.reduce((sum, booking) => sum + (booking.platform_deposit_share || 0), 0) || 0;
+        
+        const { data: prevFinalBookings } = await supabase
+          .from('bookings')
+          .select('platform_final_share')
+          .in('event_id', eventIdsStartingThisYear)
+          .eq('final_payment_status', 'paid')
+          .gte('created_at', twoWeeksAgo)
+          .lt('created_at', oneWeekAgo);
+        
+        const prevFinalPaymentRevenue = prevFinalBookings?.reduce((sum, booking) => sum + (booking.platform_final_share || 0), 0) || 0;
+
+        const depositRevenueChange = prevDepositRevenue
+          ? `${(((depositRevenue - prevDepositRevenue) / prevDepositRevenue) * 100).toFixed(0)}%`
           : '0%';
-        const revenueChangeType = recentRevenue >= prevRevenue ? 'positive' : 'negative';
+        const finalPaymentRevenueChange = prevFinalPaymentRevenue
+          ? `${(((finalPaymentRevenue - prevFinalPaymentRevenue) / prevFinalPaymentRevenue) * 100).toFixed(0)}%`
+          : '0%';
 
         setStats({
           totalVendors: vendorsCount?.toString() || '0',
           activeCouples: couplesCount?.toString() || '0',
           totalBookings: bookingsCount?.toString() || '0',
-          totalRevenue: `$${(recentRevenue / 100).toFixed(2)}`,
+          depositRevenue: `$${formatNumberWithCommas(Number((depositRevenue / 100).toFixed(2)))}`,
+          finalPaymentRevenue: `$${formatNumberWithCommas(Number((finalPaymentRevenue / 100).toFixed(2)))}`,
         });
         setChanges({
           vendorsChange: vendorsChange,
           couplesChange: couplesChange,
           bookingsChange: bookingsChange,
-          revenueChange: revenueChange,
+          depositRevenueChange: depositRevenueChange,
+          finalPaymentRevenueChange: finalPaymentRevenueChange,
         });
 
         // Fetch latest entries
@@ -203,7 +254,7 @@ export function Dashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <StatsCard
           title="Total Vendors"
           value={stats.totalVendors}
@@ -226,11 +277,18 @@ export function Dashboard() {
           icon={Calendar}
         />
         <StatsCard
-          title="Revenue"
-          value={stats.totalRevenue}
-          change={changes.revenueChange}
-          changeType={changes.revenueChange.includes('-') ? 'negative' : 'positive'}
-          icon={CreditCard}
+          title="Deposit Revenue"
+          value={stats.depositRevenue}
+          change={changes.depositRevenueChange}
+          changeType={changes.depositRevenueChange.includes('-') ? 'negative' : 'positive'}
+          icon={DollarSign}
+        />
+        <StatsCard
+          title="Final Payment Revenue"
+          value={stats.finalPaymentRevenue}
+          change={changes.finalPaymentRevenueChange}
+          changeType={changes.finalPaymentRevenueChange.includes('-') ? 'negative' : 'positive'}
+          icon={DollarSign}
         />
       </div>
 
@@ -307,7 +365,7 @@ export function Dashboard() {
                 <span className="font-medium">Order #{latestOrder.id}</span>
               </p>
               <p className="text-xs text-gray-500">
-                Total: ${(latestOrder.total_amount / 100).toFixed(2)} • {new Date(latestOrder.created_at).toLocaleString()}
+                Total: ${formatNumberWithCommas(Number((latestOrder.total_amount / 100).toFixed(2)))} • {new Date(latestOrder.created_at).toLocaleString()}
               </p>
             </div>
           </div>
@@ -329,7 +387,7 @@ export function Dashboard() {
                 <span className="font-medium">Booking #{latestBooking.id}</span>
               </p>
               <p className="text-xs text-gray-500">
-                Amount: ${(latestBooking.amount / 100).toFixed(2)} • {new Date(latestBooking.created_at).toLocaleString()}
+                Amount: ${formatNumberWithCommas(Number((latestBooking.amount / 100).toFixed(2)))} • {new Date(latestBooking.created_at).toLocaleString()}
               </p>
             </div>
           </div>
@@ -359,4 +417,4 @@ export function Dashboard() {
       </div>
     </div>
   );
-}
+} 

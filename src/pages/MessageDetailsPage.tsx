@@ -263,12 +263,22 @@ export default function MessageDetailsPage() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Messages</h2>
         <div className="space-y-4 max-h-96 overflow-y-auto">
           {messages.map(msg => (
-            <div key={msg.id} className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-sm font-medium text-gray-900">{msg.sender_name}</p>
-              <p className="text-sm text-gray-700">{msg.message_text}</p>
-              <p className="text-xs text-gray-500">{new Date(msg.timestamp).toLocaleString()}</p>
+            <div
+              key={msg.id}
+              className={`p-4 rounded-lg ${
+                msg.sender_id === user?.id
+                  ? 'bg-blue-100 ml-8'
+                  : 'bg-gray-100 mr-8'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-gray-900">{msg.sender_name}</p>
+                <p className="text-xs text-gray-500">{new Date(msg.timestamp).toLocaleString()}</p>
+              </div>
+              <p className="text-sm text-gray-800">{msg.message_text}</p>
             </div>
           ))}
         </div>

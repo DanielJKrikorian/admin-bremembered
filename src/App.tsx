@@ -52,6 +52,8 @@ import AdminInquiriesPage from './pages/AdminInquiriesPage';
 import AdminInquiryDetailsPage from './pages/AdminInquiryDetailsPage';
 import BlogPostManagement from './pages/BlogPostManagement';
 import BlogPostDetailsPage from './pages/BlogPostDetailsPage';
+import AdPurchasesPage from './pages/AdPurchasesPage';
+import AdPurchaseDetailsPage from './pages/AdPurchaseDetailsPage';
 import VendorApplicationsPage from './pages/VendorApplicationsPage';
 import VendorApplicationDetailsPage from './pages/VendorApplicationDetailsPage';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -95,7 +97,16 @@ function App() {
                   </ErrorBoundary>
                 }
               />
-              <Route path="bookings" element={<BookingAndEventsPage />} />
+              <Route path="ad-purchase" element={<AdPurchasesPage />} />
+              <Route
+                path="ad-purchase/:id"
+                element={
+                  <ErrorBoundary>
+                    <AdPurchaseDetailsPage />
+                  </ErrorBoundary>
+                }
+              />
+                <Route path="bookings" element={<BookingAndEventsPage />} />
               <Route
                 path="booking/:id"
                 element={

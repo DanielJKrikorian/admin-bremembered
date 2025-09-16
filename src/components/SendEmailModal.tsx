@@ -12,7 +12,7 @@ interface Recipient {
   name: string;
   email: string;
   type: 'vendor' | 'couple' | 'lead' | 'blog_subscription' | 'custom';
-  weddingDate?: string; // Optional for couples
+  weddingDate?: string;
 }
 
 interface SendEmailModalProps {
@@ -33,8 +33,11 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [loading, setLoading] = useState(false);
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [isFetching, setIsFetching] = useState(true);
 
   const quillRef = useRef<ReactQuill>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const quillModules = {
     toolbar: [
@@ -54,6 +57,7 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
   }, []);
 
   const fetchOptions = async () => {
+    setIsFetching(true);
     try {
       const vendorsPromise = supabase.from('vendors').select('id, name, user_id');
       const couplesPromise = supabase.from('couples').select('id, name, user_id, wedding_date');
@@ -123,7 +127,7 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
             weddingDate: couple.wedding_date ? new Date(couple.wedding_date).toLocaleDateString() : undefined,
           };
         })
-        .filter((c): v is Recipient => c !== null);
+        .filter((c): c is Recipient => c !== null);
 
       const leadsData = leadsResult.data.map((lead) => ({
         id: lead.id,
@@ -139,10 +143,15 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
         type: 'blog_subscription',
       }));
 
-      setVendors(vendorsData);
-      setCouples(couplesData);
-      setLeads(leadsData);
-      setBlogSubscribers(subscribersData);
+      setVendors(vendorsData || []);
+      setCouples(couplesData || []);
+      setLeads(leadsData || []);
+      setBlogSubscribers(subscribersData || []);
+
+      console.log('Vendors:', vendorsData);
+      console.log('Couples:', couplesData);
+      console.log('Leads:', leadsData);
+      console.log('Subscribers:', subscribersData);
 
       if (vendorsData.length === 0 && couplesData.length === 0 && leadsData.length === 0 && subscribersData.length === 0) {
         toast.warn('No valid recipients found. Check user data and permissions.');
@@ -150,6 +159,12 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
     } catch (error: any) {
       console.error('Error in fetchOptions:', error);
       toast.error('Failed to load recipients: ' + error.message);
+      setVendors([]);
+      setCouples([]);
+      setLeads([]);
+      setBlogSubscribers([]);
+    } finally {
+      setIsFetching(false);
     }
   };
 
@@ -157,7 +172,6 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
     setSelectedGroups((prev) =>
       prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group]
     );
-    // Clear deselected recipients when toggling groups
     setDeselectedRecipients(new Set());
   };
 
@@ -194,24 +208,27 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
   const getGroupRecipients = (group: string): Recipient[] => {
     switch (group) {
       case 'vendors':
-        return vendors;
+        return vendors || [];
       case 'couples':
-        return couples;
+        return couples || [];
       case 'leads':
-        return leads;
+        return leads || [];
       case 'blog_subscriptions':
-        return blogSubscribers;
+        return blogSubscribers || [];
       default:
         return [];
     }
   };
 
-  const getAllRecipients = (): Recipient[] => [
-    ...vendors,
-    ...couples,
-    ...leads,
-    ...blogSubscribers,
-  ].filter((r, index, self) => self.findIndex((t) => t.email === r.email) === index);
+  const getAllRecipients = (): Recipient[] => {
+    const all = [
+      ...(vendors || []),
+      ...(couples || []),
+      ...(leads || []),
+      ...(blogSubscribers || []),
+    ];
+    return all.filter((r, index, self) => self.findIndex((t) => t.email === r.email) === index);
+  };
 
   const filteredRecipients = getAllRecipients().filter((recipient) =>
     recipient.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -219,7 +236,30 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
 
   const getSelectedRecipients = () => {
     const allRecipients = getAllRecipients();
+    if (!allRecipients) return [];
     return allRecipients.filter((r) => !deselectedRecipients.has(r.id));
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('File input clicked, change event triggered');
+    const file = e.target.files?.[0];
+    if (file && file.type === 'application/pdf') {
+      setAttachment(file);
+      toast.success('PDF attached successfully!');
+    } else {
+      setAttachment(null);
+      toast.error('Please select a valid PDF file.');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleAttachmentClick = () => {
+    console.log('Attachment button clicked');
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -229,11 +269,11 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
 
     try {
       const recipients = getSelectedRecipients();
-      if (recipients.length === 0) {
+      if (recipients.length === 0 && !recipientEmail) {
         throw new Error('Please select at least one recipient or enter an email address');
       }
 
-      const emailData = {
+      const emailData: any = {
         recipients: recipients.map((r) => ({
           id: r.id,
           email: r.email,
@@ -244,11 +284,44 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
         body,
       };
 
+      if (recipientEmail) {
+        emailData.recipients.push({
+          id: 'custom',
+          email: recipientEmail,
+          name: 'Custom Recipient',
+          type: 'custom',
+        });
+      }
+
+      let attachmentUrl = null;
+      if (attachment) {
+        const fileName = `${Date.now()}_${attachment.name}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('email-attachments')
+          .upload(fileName, attachment, {
+            contentType: 'application/pdf',
+          });
+
+        if (uploadError) {
+          throw new Error(`Failed to upload attachment: ${uploadError.message}`);
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('email-attachments')
+          .getPublicUrl(fileName);
+
+        attachmentUrl = urlData.publicUrl;
+        emailData.attachment = {
+          name: attachment.name,
+          url: attachmentUrl,
+        };
+      }
+
       const { error, data, status } = await supabase.functions.invoke('admin-email-system', {
         body: emailData,
       });
 
-      console.log('Function response:', { error, data, status }); // Debug response
+      console.log('Function response:', { error, data, status });
 
       if (error) throw error;
 
@@ -265,6 +338,10 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
       setDeselectedRecipients(new Set());
       setRecipientEmail('');
       setSearchQuery('');
+      setAttachment(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     } catch (error: any) {
       console.error('Error sending email:', error);
       toast.error(`Failed to send email: ${error.message || 'Internal server error'}`);
@@ -275,7 +352,6 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
 
   const handleCancel = () => {
     console.log('Cancel button clicked');
-    alert('Cancel button clicked - testing');
     onClose();
   };
 
@@ -284,10 +360,13 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
     onClose();
   };
 
-  const isSendDisabled = loading || getSelectedRecipients().length === 0 || !subject || !body;
+  const isSendDisabled = loading || (getSelectedRecipients().length === 0 && !recipientEmail) || !subject || !body || isFetching;
+
   const sendButtonTooltip = isSendDisabled
-    ? (getSelectedRecipients().length === 0
-        ? 'Select at least one recipient'
+    ? (isFetching
+        ? 'Loading recipients...'
+        : (getSelectedRecipients().length === 0 && !recipientEmail)
+        ? 'Select at least one recipient or enter an email'
         : !subject
         ? 'Subject is required'
         : !body
@@ -337,112 +416,141 @@ export default function SendEmailModal({ isOpen, onClose, onEmailSent }: SendEma
                 <Dialog.Title as="h3" className="text-lg font-medium leading-6 text-gray-900 mb-4">
                   Send Email
                 </Dialog.Title>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Select Recipient Groups</label>
-                    <div className="flex flex-wrap gap-4 mt-2">
-                      {['vendors', 'couples', 'leads', 'blog_subscriptions'].map((group) => (
-                        <div key={group} className="flex items-center space-x-2">
-                          <input
-                            type="checkbox"
-                            checked={selectedGroups.includes(group)}
-                            onChange={() => handleGroupToggle(group)}
-                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                          />
-                          <span className="text-sm text-gray-700">
-                            {group
-                              .replace('blog_subscriptions', 'Blog Subscribers')
-                              .replace('_', ' ')
-                              .split(' ')
-                              .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-                              .join(' ')}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleSelectAll(group)}
-                            className="text-xs text-blue-600 hover:text-blue-800 ml-2"
-                          >
-                            Select All
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleUnselectAll(group)}
-                            className="text-xs text-red-600 hover:text-red-800 ml-1"
-                          >
-                            Unselect All
-                          </button>
-                        </div>
-                      ))}
+                {isFetching ? (
+                  <div className="text-center">Loading recipients...</div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Select Recipient Groups</label>
+                      <div className="flex flex-wrap gap-4 mt-2">
+                        {['vendors', 'couples', 'leads', 'blog_subscriptions'].map((group) => (
+                          <div key={group} className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedGroups.includes(group)}
+                              onChange={() => handleGroupToggle(group)}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            />
+                            <span className="text-sm text-gray-700">
+                              {group
+                                .replace('blog_subscriptions', 'Blog Subscribers')
+                                .replace('_', ' ')
+                                .split(' ')
+                                .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                                .join(' ')}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleSelectAll(group)}
+                              className="text-xs text-blue-600 hover:text-blue-800 ml-2"
+                            >
+                              Select All
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleUnselectAll(group)}
+                              className="text-xs text-red-600 hover:text-red-800 ml-1"
+                            >
+                              Unselect All
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">Search All Recipients</label>
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search all recipients..."
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <div className="mt-2 max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2">
+                        {filteredRecipients.map((recipient) => (
+                          <div key={recipient.id} className="flex items-center py-1">
+                            <input
+                              type="checkbox"
+                              checked={!deselectedRecipients.has(recipient.id)}
+                              onChange={() => handleDeselectRecipient(recipient.id)}
+                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                            />
+                            <span className="ml-2 text-sm text-gray-700">
+                              {recipient.name}
+                              {recipient.type === 'couple' && recipient.weddingDate && (
+                                <span className="ml-2 text-xs text-gray-500">({recipient.weddingDate})</span>
+                              )}
+                              {' ('}
+                              {recipient.email}
+                              {') - '}
+                              {recipient.type.replace('_', ' ')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label htmlFor="recipientEmail" className="block text-sm font-medium text-gray-700">
+                        Single Recipient Email (Optional)
+                      </label>
+                      <input
+                        type="email"
+                        id="recipientEmail"
+                        value={recipientEmail}
+                        onChange={(e) => setRecipientEmail(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Enter a single email address"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="subject" className="block text-sm font-medium text-gray-700">Subject</label>
+                      <input
+                        type="text"
+                        id="subject"
+                        value={subject}
+                        onChange={(e) => setSubject(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="attachment" className="block text-sm font-medium text-gray-700">
+                        Attach PDF (Optional)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAttachmentClick}
+                        className="mt-1 inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        Choose PDF
+                      </button>
+                      <input
+                        type="file"
+                        id="attachment"
+                        ref={fileInputRef}
+                        accept="application/pdf"
+                        onChange={handleFileChange}
+                        className="hidden"
+                      />
+                      {attachment && (
+                        <p className="mt-1 text-sm text-gray-600">
+                          Attached: {attachment.name}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label htmlFor="body" className="block text-sm font-medium text-gray-700">Body</label>
+                      <ReactQuill
+                        ref={quillRef}
+                        theme="snow"
+                        value={body}
+                        onChange={setBody}
+                        modules={quillModules}
+                        className="h-64 mb-6"
+                      />
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Search All Recipients</label>
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search all recipients..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <div className="mt-2 max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2">
-                      {filteredRecipients.map((recipient) => (
-                        <div key={recipient.id} className="flex items-center py-1">
-                          <input
-                            type="checkbox"
-                            checked={!deselectedRecipients.has(recipient.id)}
-                            onChange={() => handleDeselectRecipient(recipient.id)}
-                            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                          />
-                          <span className="ml-2 text-sm text-gray-700">
-                            {recipient.name}
-                            {recipient.type === 'couple' && recipient.weddingDate && (
-                              <span className="ml-2 text-xs text-gray-500">({recipient.weddingDate})</span>
-                            )}
-                            {' ('}
-                            {recipient.email}
-                            {') - '}
-                            {recipient.type.replace('_', ' ')}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label htmlFor="recipientEmail" className="block text-sm font-medium text-gray-700">
-                      Single Recipient Email (Optional)
-                    </label>
-                    <input
-                      type="email"
-                      id="recipientEmail"
-                      value={recipientEmail}
-                      onChange={(e) => setRecipientEmail(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter a single email address"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="subject" className="block text-sm font-medium text-gray-700">Subject</label>
-                    <input
-                      type="text"
-                      id="subject"
-                      value={subject}
-                      onChange={(e) => setSubject(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="body" className="block text-sm font-medium text-gray-700">Body</label>
-                    <ReactQuill
-                      ref={quillRef}
-                      theme="snow"
-                      value={body}
-                      onChange={setBody}
-                      modules={quillModules}
-                      className="h-64 mb-6"
-                    />
-                  </div>
-                </div>
+                )}
                 <div className="mt-8 flex justify-end space-x-2 z-60 button-container">
                   <div className="relative">
                     <button

@@ -22,6 +22,7 @@ interface Order {
   shipping_method: string | null;
   coupon_discount: number | null;
   user_name: string;
+  email: string | null;
   items: {
     id: string;
     product_id: string;
@@ -40,11 +41,18 @@ interface Order {
   }[];
 }
 
+interface FormState {
+  status: string;
+  tracking_number: string | null;
+  shipping_provider: string | null;
+}
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedStatus, setSelectedStatus] = useState('All');
+  const [formStates, setFormStates] = useState<{ [key: string]: FormState }>({});
   const ordersPerPage = 10;
   const navigate = useNavigate();
 
@@ -60,7 +68,7 @@ export default function OrdersPage() {
         if (ordersResponse.error) throw ordersResponse.error;
         if (itemsResponse.error) throw itemsResponse.error;
 
-        const allUserIds = [...new Set(ordersResponse.data.map(o => o.user_id))];
+        const allUserIds = [...new Set(ordersResponse.data.map(o => o.user_id).filter(id => id))];
         const [couplesRes, vendorsRes] = await Promise.all([
           supabase.from('couples').select('user_id, name').in('user_id', allUserIds),
           supabase.from('vendors').select('user_id, name').in('user_id', allUserIds),
@@ -96,13 +104,24 @@ export default function OrdersPage() {
 
             return {
               ...order,
-              user_name: nameMap.get(order.user_id) || 'Unknown',
+              user_name: order.user_id ? nameMap.get(order.user_id) || 'Unknown' : 'Guest',
+              email: order.email || 'N/A',
               items: itemsWithDetails,
             };
           })
         );
 
         setOrders(ordersWithItems);
+        // Initialize form states
+        const initialFormStates = ordersWithItems.reduce((acc, order) => ({
+          ...acc,
+          [order.id]: {
+            status: order.status,
+            tracking_number: order.tracking_number,
+            shipping_provider: order.shipping_provider,
+          },
+        }), {});
+        setFormStates(initialFormStates);
       } catch (error: any) {
         console.error('Error fetching orders:', error);
         toast.error('Failed to load orders');
@@ -113,6 +132,36 @@ export default function OrdersPage() {
 
     fetchData();
   }, []);
+
+  const handleFormChange = (orderId: string, field: keyof FormState, value: string) => {
+    setFormStates(prev => ({
+      ...prev,
+      [orderId]: {
+        ...prev[orderId],
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleSubmit = async (orderId: string) => {
+    try {
+      const updates = {
+        ...formStates[orderId],
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await supabase
+        .from('store_orders')
+        .update(updates)
+        .eq('id', orderId);
+      if (error) throw error;
+
+      setOrders(orders.map(o => o.id === orderId ? { ...o, ...updates } : o));
+      toast.success('Order updated successfully');
+    } catch (err) {
+      console.error('Error updating order:', err);
+      toast.error('Failed to update order');
+    }
+  };
 
   const filteredOrders = selectedStatus === 'All'
     ? orders
@@ -125,42 +174,13 @@ export default function OrdersPage() {
 
   const paginate = (page: number) => setCurrentPage(page);
 
-  const handleUpdateStatus = async (orderId: string, newStatus: string) => {
-    try {
-      const { error } = await supabase
-        .from('store_orders')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('id', orderId);
-      if (error) throw error;
-
-      setOrders(orders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
-      toast.success('Status updated');
-    } catch (err) {
-      toast.error('Failed to update status');
-    }
-  };
-
-  const handleTrackingUpdate = async (orderId: string, field: 'tracking_number' | 'shipping_provider', value: string) => {
-    try {
-      const { error } = await supabase
-        .from('store_orders')
-        .update({ [field]: value, updated_at: new Date().toISOString() })
-        .eq('id', orderId);
-      if (error) throw error;
-
-      setOrders(orders.map(o => o.id === orderId ? { ...o, [field]: value } : o));
-      toast.success(`${field === 'tracking_number' ? 'Tracking' : 'Provider'} updated`);
-    } catch (err) {
-      toast.error('Failed to update tracking info');
-    }
-  };
-
   const handleExportCSV = () => {
     const rows = [
-      ['Order ID', 'User', 'Status', 'Total Amount', 'Tracking Number', 'Shipping Provider'],
+      ['Order ID', 'User', 'Email', 'Status', 'Total Amount', 'Tracking Number', 'Shipping Provider'],
       ...filteredOrders.map(o => [
         o.id,
         o.user_name,
+        o.email,
         o.status,
         (o.total_amount / 100).toFixed(2),
         o.tracking_number || '',
@@ -264,6 +284,7 @@ export default function OrdersPage() {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order ID</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tracking</th>
@@ -275,34 +296,43 @@ export default function OrdersPage() {
                 <tr key={order.id}>
                   <td className="px-6 py-4">{order.id}</td>
                   <td className="px-6 py-4">{order.user_name}</td>
+                  <td className="px-6 py-4">{order.email}</td>
                   <td className="px-6 py-4">
-                    <select
-                      value={order.status}
-                      onChange={(e) => handleUpdateStatus(order.id, e.target.value)}
-                      className="border rounded px-2 py-1"
-                    >
-                      {['pending', 'processing', 'paid', 'shipped', 'delivered', 'cancelled'].map(status => (
-                        <option key={status} value={status}>{status}</option>
-                      ))}
-                    </select>
-                    {order.status === 'shipped' && (
-                      <div className="mt-2 space-y-1">
-                        <input
-                          type="text"
-                          placeholder="Tracking Number"
-                          defaultValue={order.tracking_number || ''}
-                          onBlur={(e) => handleTrackingUpdate(order.id, 'tracking_number', e.target.value)}
-                          className="w-full border rounded px-2 py-1"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Shipping Provider"
-                          defaultValue={order.shipping_provider || ''}
-                          onBlur={(e) => handleTrackingUpdate(order.id, 'shipping_provider', e.target.value)}
-                          className="w-full border rounded px-2 py-1"
-                        />
-                      </div>
-                    )}
+                    <div className="space-y-2">
+                      <select
+                        value={formStates[order.id]?.status || order.status}
+                        onChange={(e) => handleFormChange(order.id, 'status', e.target.value)}
+                        className="border rounded px-2 py-1 w-full"
+                      >
+                        {['pending', 'processing', 'paid', 'shipped', 'delivered', 'cancelled'].map(status => (
+                          <option key={status} value={status}>{status}</option>
+                        ))}
+                      </select>
+                      {formStates[order.id]?.status === 'shipped' && (
+                        <div className="space-y-1">
+                          <input
+                            type="text"
+                            placeholder="Tracking Number"
+                            value={formStates[order.id]?.tracking_number || ''}
+                            onChange={(e) => handleFormChange(order.id, 'tracking_number', e.target.value)}
+                            className="w-full border rounded px-2 py-1"
+                          />
+                          <input
+                            type="text"
+                            placeholder="Shipping Provider"
+                            value={formStates[order.id]?.shipping_provider || ''}
+                            onChange={(e) => handleFormChange(order.id, 'shipping_provider', e.target.value)}
+                            className="w-full border rounded px-2 py-1"
+                          />
+                        </div>
+                      )}
+                      <button
+                        onClick={() => handleSubmit(order.id)}
+                        className="mt-2 px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        Submit
+                      </button>
+                    </div>
                   </td>
                   <td className="px-6 py-4">${(order.total_amount / 100).toFixed(2)}</td>
                   <td className="px-6 py-4">

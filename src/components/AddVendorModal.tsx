@@ -1,4 +1,3 @@
-// src/components/AddVendorModal.tsx
 import React, { useState, useEffect } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { Fragment } from 'react';
@@ -60,7 +59,7 @@ export default function AddVendorModal({ isOpen, onClose }: AddVendorModalProps)
     return () => {
       isMounted = false;
     };
-  }, []); // Empty deps to run once
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,7 +117,7 @@ export default function AddVendorModal({ isOpen, onClose }: AddVendorModalProps)
         throw new Error(result.error || 'Failed to add vendor');
       }
 
-      toast.success('Vendor added and welcome email sent!');
+      toast.success('Vendor added and welcome email sent! Vendor must set their password to log in.');
       onClose();
     } catch (error: any) {
       console.error('Error adding vendor:', error);

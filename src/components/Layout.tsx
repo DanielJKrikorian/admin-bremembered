@@ -27,6 +27,7 @@ import {
   Trophy,
   HelpCircleIcon,
   Target,
+  TrendingUp,
 } from 'lucide-react';
 
 const navigation = [
@@ -37,6 +38,7 @@ const navigation = [
   {
     group: 'Users & Leads',
     items: [
+      { name: 'Analytics', href: '/dashboard/analytics', icon: TrendingUp },
       { name: 'Advertising', href: '/dashboard/ad-purchase', icon: Target },
       { name: 'Vendors', href: '/dashboard/vendors', icon: Building2 },
        { name: 'Rewards', href: '/dashboard/rewards-leaderboard', icon: Trophy }, // Updated from /rewardsleaderboard to /rewards-leaderboard

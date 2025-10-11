@@ -58,6 +58,7 @@ import VendorApplicationsPage from './pages/VendorApplicationsPage';
 import VendorApplicationDetailsPage from './pages/VendorApplicationDetailsPage';
 import ErrorBoundary from './components/ErrorBoundary';
 import AdminChatPage from './pages/AdminChatPage';
+import Analytics from './pages/Analytics'; // Ensure this matches the export
 import AdminChatDetailsPage from './pages/AdminChatDetailsPage';
 
 function App() {
@@ -76,6 +77,7 @@ function App() {
                 </ProtectedRoute>
               }
             >
+              <Route path="/dashboard/analytics" element={<Analytics />} />
               <Route index element={<Dashboard />} />
               <Route path="vendors" element={<VendorsPage />} />
               <Route
@@ -196,6 +198,7 @@ function App() {
                 }
               />
               <Route path="reviews" element={<ReviewsPage />} />
+              <Route path="analytics" element={<Analytics />} />
               <Route path="rewards-leaderboard" element={<AdminRewardsLeaderboard />} />
               <Route path="support-reviews" element={<SupportReviewsPage />} />
               <Route path="contracts" element={<ContractsPage />} />
